@@ -12,9 +12,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Implementation Status
 - ✅ **Storage Layer**: In-memory time-series cache with statistics (5min sliding window)
 - ✅ **Analyzer Layer**: Phase 1 MVP with 5 critical anomaly detectors
-- 🔄 **Collector Layer**: In progress
-- 🔄 **TUI Layer**: Planned
-- 🔄 **Config Layer**: Planned
+- ✅ **K8s Client Layer**: HPA collection and snapshot creation
+- ✅ **Prometheus Client Layer**: Metrics enrichment with PromQL queries
+- ✅ **Collector Layer**: Unified orchestration of K8s + Prometheus + Analyzer
+- ✅ **Config Layer**: YAML-based configuration system
+- 🔄 **TUI Layer**: Next (Phase 3)
+- ⚠️ **Alertmanager Layer**: Optional (not critical for MVP)
 
 ## Core Philosophy: KISS (Keep It Simple, Stupid)
 
@@ -340,21 +343,23 @@ Example: CPU spike → maxed out replicas → high errors → high latency all c
 - ✅ Comprehensive unit tests (storage + analyzer)
 - ✅ Documentation (README for each package)
 
-### Phase 2: Integration (Current)
-- 🔄 K8s client integration
-- 🔄 Prometheus client integration
-- 🔄 Alertmanager client integration
-- 🔄 Unified collector (K8s + Prometheus + Alertmanager)
-- 🔄 Monitoring loop implementation
-- 🔄 Config system with YAML support
+### Phase 2: Integration ✅ (Completed)
+- ✅ K8s client integration (`monitor/k8s_client.go`)
+- ✅ Prometheus client integration (`prometheus/client.go`)
+- ⚠️ Alertmanager client integration (TODO - not critical for MVP)
+- ✅ Unified collector (`monitor/collector.go`)
+- ✅ Monitoring loop implementation with channels
+- ✅ Config system with YAML support (`config/loader.go`)
+- ✅ All tests passing (analyzer, storage, monitor, prometheus)
 
-### Phase 3: User Interface
+### Phase 3: User Interface (Current)
 - 🔄 Basic TUI (Bubble Tea)
 - 🔄 Dashboard view (multi-cluster overview)
 - 🔄 Alerts view (with filtering)
 - 🔄 Cluster detail view
 - 🔄 ASCII charts for metrics
 - 🔄 Config modal
+- 🔄 Integration with collector channels
 
 ### Phase 4: Advanced Features
 - 🔄 Alert correlation engine
