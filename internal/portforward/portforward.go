@@ -168,6 +168,48 @@ func NewManager() *PortForwardManager {
 	}
 }
 
+// discoverPrometheusService tenta descobrir o serviço do Prometheus
+func (m *PortForwardManager) discoverPrometheusService(cluster string) string {
+	// Lista de nomes comuns do Prometheus
+	commonNames := []string{
+		"prometheus-prometheus",  // Prometheus Operator
+		"prometheus-k8s",         // Kube-Prometheus
+		"prometheus-server",      // Helm Chart comum
+		"prometheus",             // Nome simples
+		"prometheus-operated",    // Prometheus Operator (statefulset)
+	}
+
+	// Tenta cada nome
+	for _, serviceName := range commonNames {
+		log.Debug().
+			Str("cluster", cluster).
+			Str("service", serviceName).
+			Msg("Tentando descobrir serviço Prometheus")
+
+		// Testa se serviço existe
+		cmd := exec.Command("kubectl",
+			"get", "svc", serviceName,
+			"-n", "monitoring",
+			"--context", cluster,
+			"--no-headers",
+		)
+
+		if err := cmd.Run(); err == nil {
+			log.Info().
+				Str("cluster", cluster).
+				Str("service", serviceName).
+				Msg("Serviço Prometheus descoberto")
+			return serviceName
+		}
+	}
+
+	// Fallback: retorna default
+	log.Warn().
+		Str("cluster", cluster).
+		Msg("Não foi possível descobrir serviço Prometheus, usando default: prometheus-k8s")
+	return "prometheus-k8s"
+}
+
 // Start inicia port-forward para um cluster
 func (m *PortForwardManager) Start(cluster string) error {
 	// Se já existe, retorna
@@ -176,12 +218,16 @@ func (m *PortForwardManager) Start(cluster string) error {
 		return nil
 	}
 
+	// Descobre o nome do serviço Prometheus
+	serviceName := m.discoverPrometheusService(cluster)
+
 	// Cria novo port-forward (porta incrementada por cluster)
 	basePort := 9090
 	port := basePort + len(m.forwards)
 
 	pf := New(Config{
 		Cluster:   cluster,
+		Service:   serviceName,
 		LocalPort: port,
 	})
 
