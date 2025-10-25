@@ -158,7 +158,7 @@ func (m Model) renderStepMode() string {
 		prefix := "  "
 		style := TableRowStyle
 
-		if scanner.ScanMode(i) == m.setupState.config.Mode {
+		if i == m.setupState.cursorPos {
 			prefix = "▶ "
 			style = TableRowSelectedStyle
 		}
@@ -202,11 +202,11 @@ func (m Model) renderStepEnvironment() string {
 		},
 	}
 
-	for _, env := range environments {
+	for i, env := range environments {
 		prefix := "  "
 		style := TableRowStyle
 
-		if env.env == m.setupState.config.Environment {
+		if i == m.setupState.cursorPos {
 			prefix = "▶ "
 			style = TableRowSelectedStyle
 		}
@@ -294,11 +294,11 @@ func (m Model) renderStepInterval() string {
 		60 * time.Minute,
 	}
 
-	for _, interval := range intervals {
+	for i, interval := range intervals {
 		prefix := "  "
 		style := TableRowStyle
 
-		if interval == m.setupState.config.Interval {
+		if i == m.setupState.cursorPos {
 			prefix = "▶ "
 			style = TableRowSelectedStyle
 		}
@@ -333,17 +333,17 @@ func (m Model) renderStepDuration() string {
 		{3 * time.Hour, "3 horas (máximo)"},
 	}
 
-	for _, dur := range durations {
+	for i, dur := range durations {
 		prefix := "  "
 		style := TableRowStyle
 
-		if dur.duration == m.setupState.config.Duration {
+		if i == m.setupState.cursorPos {
 			prefix = "▶ "
 			style = TableRowSelectedStyle
 		}
 
 		scans := ""
-		if dur.duration > 0 {
+		if dur.duration > 0 && m.setupState.config.Interval > 0 {
 			estimated := int(dur.duration / m.setupState.config.Interval)
 			scans = fmt.Sprintf(" (~%d scans)", estimated)
 		}
