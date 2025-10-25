@@ -7,6 +7,7 @@ import (
 
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/analyzer"
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/models"
+	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/monitor"
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/portforward"
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/scanner"
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/storage"
@@ -219,18 +220,93 @@ func (e *ScanEngine) runScan() {
 
 	scanStart := time.Now()
 
-	// TODO: Implementar coleta real via Prometheus
-	// Por enquanto, só loga
+	// Para cada target configurado
 	for _, target := range e.config.Targets {
 		log.Info().
 			Str("cluster", target.Cluster).
 			Strs("namespaces", target.Namespaces).
 			Msg("Escaneando cluster")
 
-		// TODO: Chamar collector para coletar snapshots
-		// TODO: Enviar snapshots para cache
-		// TODO: Rodar detector
-		// TODO: Enviar anomalias encontradas
+		// Cria contexto com timeout para o scan
+		ctx, cancel := context.WithTimeout(e.ctx, 2*time.Minute)
+
+		// Obtém URL do Prometheus (port-forward)
+		promEndpoint := e.pfManager.GetURL(target.Cluster)
+		if promEndpoint == "" {
+			log.Warn().
+				Str("cluster", target.Cluster).
+				Msg("Port-forward não disponível, pulando cluster")
+			cancel()
+			continue
+		}
+
+		// Cria ClusterInfo
+		clusterInfo := &models.ClusterInfo{
+			Name:    target.Cluster,
+			Context: target.Cluster, // Assumindo que cluster name = context name
+		}
+
+		// Cria collector para este cluster
+		collector, err := monitor.NewCollector(clusterInfo, promEndpoint, &monitor.CollectorConfig{
+			ScanInterval:      e.config.Interval,
+			ExcludeNamespaces: []string{},
+			EnablePrometheus:  true,
+		})
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("cluster", target.Cluster).
+				Msg("Falha ao criar collector")
+			cancel()
+			continue
+		}
+
+		// Executa scan do cluster
+		result, err := collector.Scan(ctx)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("cluster", target.Cluster).
+				Msg("Falha ao executar scan")
+			cancel()
+			continue
+		}
+
+		// Envia snapshots coletados para canal da TUI
+		snapshots := collector.GetCache().GetAll()
+		for _, ts := range snapshots {
+			latest := ts.GetLatest()
+			if latest != nil {
+				// Envia snapshot para canal (non-blocking)
+				select {
+				case e.snapshotChan <- latest:
+				default:
+					log.Warn().
+						Str("cluster", target.Cluster).
+						Msg("Canal de snapshots cheio, descartando snapshot")
+				}
+			}
+		}
+
+		// Envia anomalias detectadas para canal da TUI
+		for _, anomaly := range result.Anomalies {
+			select {
+			case e.anomalyChan <- anomaly:
+			default:
+				log.Warn().
+					Str("cluster", target.Cluster).
+					Msg("Canal de anomalias cheio, descartando anomalia")
+			}
+		}
+
+		log.Info().
+			Str("cluster", target.Cluster).
+			Int("snapshots", result.SnapshotsCount).
+			Int("anomalies", len(result.Anomalies)).
+			Int("errors", len(result.Errors)).
+			Msg("Cluster escaneado com sucesso")
+
+		cancel()
 	}
 
 	scanDuration := time.Since(scanStart)
