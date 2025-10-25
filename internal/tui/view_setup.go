@@ -39,10 +39,17 @@ type SetupState struct {
 
 // NewSetupState cria novo estado de setup
 func NewSetupState() *SetupState {
+	// Carrega clusters do kubeconfig
+	clusters, err := scanner.LoadClustersFromKubeconfig()
+	if err != nil {
+		// Se falhar, usa lista vazia (usuário verá mensagem de erro)
+		clusters = []string{}
+	}
+
 	return &SetupState{
 		currentStep:       SetupStepMode,
 		config:            scanner.DefaultScanConfig(),
-		availableClusters: []string{}, // TODO: Load from kubeconfig
+		availableClusters: clusters,
 		selectedTargets:   []scanner.ScanTarget{},
 		cursorPos:         0,
 		confirmed:         false,
@@ -397,7 +404,7 @@ func (m Model) renderStepConfirm() string {
 }
 
 func (m Model) renderSetupFooter() string {
-	help := "ESC: Cancelar configuração  •  Backspace: Voltar passo"
+	help := "ESC: Reiniciar configuração  •  Backspace: Voltar passo  •  Q ou Ctrl+C: Sair"
 	return FooterStyle.Copy().Width(m.width).Render(help)
 }
 
@@ -408,9 +415,15 @@ func (m Model) handleSetupKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "ctrl+c", "q", "esc":
-		// Cancelar setup
+	case "ctrl+c", "q":
+		// Sair da aplicação
 		return m, tea.Quit
+
+	case "esc":
+		// Voltar para primeiro passo (reiniciar configuração)
+		m.setupState.currentStep = SetupStepMode
+		m.setupState.cursorPos = 0
+		return m, nil
 
 	case "backspace":
 		// Voltar passo
