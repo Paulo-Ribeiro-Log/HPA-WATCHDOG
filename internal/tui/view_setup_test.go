@@ -75,6 +75,11 @@ func TestSetupEnvironmentSelection(t *testing.T) {
 	// Avança para SetupStepEnvironment
 	m.setupState.currentStep = SetupStepEnvironment
 	m.setupState.config.Mode = scanner.ScanModeFull
+	m.setupState.availableClusters = []string{
+		"akspriv-api-prd-admin",
+		"akspriv-payment-prd-admin",
+		"akspriv-api-hlg-admin",
+	}
 
 	// Seleciona PRD (cursor em 0)
 	m.setupState.cursorPos = 0
@@ -85,8 +90,14 @@ func TestSetupEnvironmentSelection(t *testing.T) {
 		t.Errorf("Environment esperado: %v, obtido: %v", scanner.EnvironmentPRD, m.setupState.config.Environment)
 	}
 
-	if m.setupState.currentStep != SetupStepTargets {
-		t.Errorf("currentStep esperado: %v, obtido: %v", SetupStepTargets, m.setupState.currentStep)
+	// Modo Full pula para Interval (não Targets)
+	if m.setupState.currentStep != SetupStepInterval {
+		t.Errorf("currentStep esperado: %v, obtido: %v", SetupStepInterval, m.setupState.currentStep)
+	}
+
+	// Deve ter auto-selecionado 2 clusters PRD
+	if len(m.setupState.selectedTargets) != 2 {
+		t.Errorf("selectedTargets esperado: 2, obtido: %d", len(m.setupState.selectedTargets))
 	}
 }
 

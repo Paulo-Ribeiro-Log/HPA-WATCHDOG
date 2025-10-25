@@ -381,18 +381,25 @@ func (m Model) renderStepConfirm() string {
 	lines = append(lines, "")
 
 	// Opções
-	options := []string{
-		"▶ Iniciar Scan",
-		"  Voltar e Ajustar",
-		"  Cancelar",
+	options := []struct {
+		label string
+		color lipgloss.Color
+	}{
+		{"Iniciar Scan", ColorSuccess},
+		{"Voltar e Ajustar", ColorWarning},
+		{"Cancelar", ColorDanger},
 	}
 
 	for i, opt := range options {
+		prefix := "  "
 		style := TableRowStyle
-		if i == 0 {
-			style = TableRowSelectedStyle.Copy().Foreground(ColorSuccess)
+
+		if i == m.setupState.cursorPos {
+			prefix = "▶ "
+			style = TableRowSelectedStyle.Copy().Foreground(opt.color)
 		}
-		lines = append(lines, style.Render(opt))
+
+		lines = append(lines, style.Render(prefix+opt.label))
 	}
 
 	lines = append(lines, "")
@@ -486,8 +493,33 @@ func (m Model) handleSetupSelect() (tea.Model, tea.Cmd) {
 			} else {
 				m.setupState.config.Environment = scanner.EnvironmentHLG
 			}
+
+			// Filtra clusters disponíveis baseado no ambiente
+			var pattern string
+			if m.setupState.config.Environment == scanner.EnvironmentPRD {
+				pattern = "*-prd-admin"
+			} else {
+				pattern = "*-hlg-admin"
+			}
+
+			// Filtra e auto-seleciona clusters do ambiente
+			filtered := scanner.FilterClustersByPattern(m.setupState.availableClusters, pattern)
+			m.setupState.selectedTargets = make([]scanner.ScanTarget, len(filtered))
+			for i, cluster := range filtered {
+				m.setupState.selectedTargets[i] = scanner.ScanTarget{
+					Cluster:     cluster,
+					Namespaces:  []string{}, // Todos
+					Deployments: []string{}, // Todos
+					HPAs:        []string{}, // Todos
+				}
+			}
+
+			// Pula step de Targets no modo Full (já auto-selecionou)
+			m.setupState.currentStep = SetupStepInterval
+		} else {
+			// Modo Individual/StressTest vai para seleção manual
+			m.setupState.currentStep = SetupStepTargets
 		}
-		m.setupState.currentStep = SetupStepTargets
 		m.setupState.cursorPos = 0
 
 	case SetupStepTargets:
@@ -531,11 +563,25 @@ func (m Model) handleSetupSelect() (tea.Model, tea.Cmd) {
 		m.setupState.cursorPos = 0
 
 	case SetupStepConfirm:
-		// Confirma e inicia scan
-		m.setupState.confirmed = true
-		m.setupState.currentStep = SetupStepDone
-		m.currentView = ViewDashboard // Muda para dashboard
-		// TODO: Iniciar scan engine aqui
+		// Processa opção selecionada
+		switch m.setupState.cursorPos {
+		case 0:
+			// Iniciar Scan
+			m.setupState.confirmed = true
+			m.setupState.currentStep = SetupStepDone
+			m.currentView = ViewDashboard // Muda para dashboard
+			// TODO: Iniciar scan engine aqui
+
+		case 1:
+			// Voltar e Ajustar - volta para seleção de intervalo
+			m.setupState.currentStep = SetupStepInterval
+			m.setupState.cursorPos = 0
+
+		case 2:
+			// Cancelar - volta para primeiro passo
+			m.setupState.currentStep = SetupStepMode
+			m.setupState.cursorPos = 0
+		}
 	}
 
 	return m, nil

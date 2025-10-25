@@ -44,9 +44,17 @@ func (m Model) renderDashboard() string {
 
 func (m Model) renderHeader(title string) string {
 	timestamp := time.Now().Format("15:04:05")
-	status := "●"
-	if len(m.clusters) > 0 {
-		status = StatusOKStyle.Render("●")
+
+	// Status do scan
+	var status string
+	if m.scanRunning {
+		if m.scanPaused {
+			status = StatusWarningStyle.Render("⏸ PAUSADO")
+		} else {
+			status = StatusOKStyle.Render("● RODANDO")
+		}
+	} else {
+		status = StatusInfoStyle.Render("○ PARADO")
 	}
 
 	left := HeaderStyle.Render(title)
@@ -281,7 +289,19 @@ func (m Model) renderRecentAnomalies(limit int) string {
 }
 
 func (m Model) renderFooter() string {
-	help := "Tab: Mudar view  •  ↑↓/jk: Navegar  •  Enter: Selecionar  •  1-4: Filtros  •  R/F5: Refresh  •  Q: Sair"
+	help := "Tab: Mudar view  •  ↑↓/jk: Navegar  •  Enter: Selecionar  •  1-4: Filtros  •  R/F5: Refresh"
+
+	// Adiciona status de scan e tecla P se scan estiver rodando
+	if m.scanRunning {
+		if m.scanPaused {
+			help += "  •  P: Retomar scan"
+		} else {
+			help += "  •  P: Pausar scan"
+		}
+	}
+
+	help += "  •  Q: Sair"
+
 	return FooterStyle.Copy().Width(m.width).Render(help)
 }
 

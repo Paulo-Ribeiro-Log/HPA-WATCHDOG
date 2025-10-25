@@ -50,6 +50,8 @@ type Model struct {
 	lastUpdate    time.Time
 	autoRefresh   bool
 	refreshTicker *time.Ticker
+	scanRunning   bool // Indica se scan está em execução
+	scanPaused    bool // Indica se scan está pausado
 
 	// Canais de dados (recebe atualizações do monitor)
 	snapshotChan chan *models.HPASnapshot
@@ -179,6 +181,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "r", "f5":
 		// Force refresh
+		return m, nil
+
+	case "p":
+		// Pausar/Retomar scan
+		if m.scanRunning {
+			m.scanPaused = !m.scanPaused
+		}
 		return m, nil
 
 	case "1", "2", "3", "4":
