@@ -1,0 +1,139 @@
+# HPA Watchdog Configuration
+
+monitoring:
+  # Intervalo entre scans (segundos)
+  scan_interval_seconds: 30
+
+  # Quanto histórico manter em memória (minutos)
+  history_retention_minutes: 5
+
+  # Prometheus Integration
+  prometheus:
+    enabled: true
+    auto_discover: true
+    fallback_to_metrics_server: true
+    query_timeout_seconds: 10
+
+    # Endpoints por cluster (usado se auto_discover=false)
+    # endpoints:
+    #   cluster-prod-east: "http://prometheus.monitoring.svc:9090"
+    #   cluster-prod-west: "http://prometheus.monitoring.svc:9090"
+
+    # Padrões de auto-discovery
+    discovery_patterns:
+      - "prometheus.monitoring.svc:9090"
+      - "prometheus-server.prometheus.svc:9090"
+      - "kube-prometheus-stack-prometheus.monitoring.svc:9090"
+
+  # Alertmanager Integration
+  alertmanager:
+    enabled: true
+    auto_discover: true
+    sync_interval_seconds: 30
+
+    # Endpoints por cluster (usado se auto_discover=false)
+    # endpoints:
+    #   cluster-prod-east: "http://alertmanager.monitoring.svc:9093"
+
+    # Padrões de auto-discovery
+    discovery_patterns:
+      - "alertmanager.monitoring.svc:9093"
+      - "alertmanager-operated.monitoring.svc:9093"
+      - "kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+
+    # Filtros
+    filters:
+      only_hpa_related: true
+      exclude_silenced: false
+      min_severity: "info"  # info, warning, critical
+
+clusters:
+  # Path para clusters-config.json (se existir)
+  config_path: "~/.k8s-hpa-manager/clusters-config.json"
+
+  # Auto-descobre clusters do kubeconfig
+  auto_discover: true
+
+  # Clusters para ignorar
+  exclude:
+    - kind-local
+    - minikube
+
+storage:
+  # Habilita persistência em SQLite
+  enable_persistence: false
+
+  # Path do banco de dados
+  persistence_path: "~/.hpa-watchdog/history.db"
+
+alerts:
+  # Prioridade de fontes de alerta (primeiro = preferência)
+  source_priority:
+    - alertmanager
+    - watchdog
+
+  # Máximo de alertas ativos
+  max_active_alerts: 100
+
+  # Auto-acknowledge alertas resolvidos
+  auto_ack_resolved: true
+
+  # Deduplicação de alertas
+  deduplicate: true
+  dedupe_window_minutes: 5
+
+  # Correlação automática de alertas relacionados
+  auto_correlate: true
+  correlation_window_minutes: 10
+
+thresholds:
+  # Replica changes
+  replica_delta_percent: 50.0     # Alerta se réplicas mudam >50%
+  replica_delta_absolute: 5       # Alerta se réplicas mudam ±5
+
+  # CPU/Memory
+  cpu_warning_percent: 85
+  cpu_critical_percent: 90
+  memory_warning_percent: 85
+  memory_critical_percent: 90
+
+  # Target deviation
+  target_deviation_percent: 30.0  # Alerta se current está 30% acima/abaixo do target
+
+  # Scaling behavior
+  scaling_stuck_minutes: 10       # Alerta se não escala quando deveria (minutos)
+
+  # Config changes
+  alert_on_config_change: true    # Alertar mudanças em HPA config
+  alert_on_resource_change: true  # Alertar mudanças em deployment resources
+
+  # Extended Metrics (Prometheus)
+  request_rate_spike_percent: 100.0  # Alerta se request rate dobrar
+  error_rate_critical_percent: 5.0   # Alerta se >5% errors
+  p95_latency_critical_ms: 1000      # Alerta se P95 >1s
+
+ui:
+  # Refresh rate da TUI (milissegundos)
+  refresh_interval_ms: 500
+
+  # Tema (dark, light, monokai)
+  theme: "dark"
+
+  # Sons de alerta (beep)
+  enable_sounds: false
+
+logging:
+  # Nível de log (debug, info, warn, error)
+  level: "info"
+
+  # Output de logs
+  output: "~/.hpa-watchdog/watchdog.log"
+
+  # Tamanho máximo do arquivo de log (MB)
+  max_size_mb: 100
+
+  # Número de backups
+  max_backups: 3
+
+  # Comprimir backups
+  compress: true
