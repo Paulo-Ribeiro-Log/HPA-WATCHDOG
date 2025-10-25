@@ -514,3 +514,5 @@ While HPA Watchdog can share utility code with the k8s-hpa-manager project (clus
 - Verify Alertmanager endpoint accessibility
 - Check alert label filters: `filters.only_hpa_related: true`
 - Increase sync interval if rate-limiting occurs
+- "As messagens do commit devem ser sempre em pt-br"
+- "O claude.md deve ser sempre em pt-br"
