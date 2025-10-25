@@ -5,6 +5,7 @@ import (
 
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/analyzer"
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/models"
+	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/scanner"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -56,6 +57,11 @@ type Model struct {
 	// Canais de dados (recebe atualizações do monitor)
 	snapshotChan chan *models.HPASnapshot
 	anomalyChan  chan analyzer.Anomaly
+
+	// Canais de controle
+	setupDoneChan chan struct{}
+	pauseChan     chan struct{}
+	stopChan      chan struct{}
 }
 
 // ClusterInfo informações resumidas de um cluster
@@ -80,6 +86,9 @@ func New() Model {
 		autoRefresh:    true,
 		snapshotChan:   make(chan *models.HPASnapshot, 100),
 		anomalyChan:    make(chan analyzer.Anomaly, 100),
+		setupDoneChan:  make(chan struct{}, 1),
+		pauseChan:      make(chan struct{}, 1),
+		stopChan:       make(chan struct{}, 1),
 	}
 }
 
@@ -186,7 +195,11 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		// Pausar/Retomar scan
 		if m.scanRunning {
-			m.scanPaused = !m.scanPaused
+			// Sinaliza pausa via canal
+			select {
+			case m.pauseChan <- struct{}{}:
+			default:
+			}
 		}
 		return m, nil
 
@@ -335,6 +348,39 @@ func (m Model) GetSnapshotChan() chan *models.HPASnapshot {
 // GetAnomalyChan retorna canal de anomalias (para testes/integração)
 func (m Model) GetAnomalyChan() chan analyzer.Anomaly {
 	return m.anomalyChan
+}
+
+// GetSetupDoneChan retorna canal de conclusão do setup
+func (m Model) GetSetupDoneChan() chan struct{} {
+	return m.setupDoneChan
+}
+
+// GetPauseChan retorna canal de pausa
+func (m Model) GetPauseChan() chan struct{} {
+	return m.pauseChan
+}
+
+// GetStopChan retorna canal de stop
+func (m Model) GetStopChan() chan struct{} {
+	return m.stopChan
+}
+
+// GetScanConfig retorna configuração do scan
+func (m Model) GetScanConfig() *scanner.ScanConfig {
+	if m.setupState == nil {
+		return nil
+	}
+	return m.setupState.config
+}
+
+// SetScanRunning define estado de execução
+func (m *Model) SetScanRunning(running bool) {
+	m.scanRunning = running
+}
+
+// SetScanPaused define estado de pausa
+func (m *Model) SetScanPaused(paused bool) {
+	m.scanPaused = paused
 }
 
 // Messages para Bubble Tea

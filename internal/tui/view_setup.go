@@ -588,8 +588,17 @@ func (m Model) handleSetupSelect() (tea.Model, tea.Cmd) {
 			// Iniciar Scan
 			m.setupState.confirmed = true
 			m.setupState.currentStep = SetupStepDone
+
+			// Copia targets para config
+			m.setupState.config.Targets = m.setupState.selectedTargets
+
+			// Sinaliza conclusão do setup
+			select {
+			case m.setupDoneChan <- struct{}{}:
+			default:
+			}
+
 			m.currentView = ViewDashboard // Muda para dashboard
-			// TODO: Iniciar scan engine aqui
 
 		case 1:
 			// Voltar e Ajustar - volta para seleção de intervalo
