@@ -10,12 +10,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Target**: Multi-cluster HPA monitoring with Prometheus + Alertmanager integration
 
 ### Implementation Status
-- ✅ **Storage Layer**: In-memory time-series cache with statistics (5min sliding window)
-- ✅ **Analyzer Layer**: Phase 1 MVP with 5 critical anomaly detectors
+- ✅ **Storage Layer**: In-memory time-series cache + SQLite persistence (24h retention)
+- ✅ **Analyzer Layer**: Phase 1 (persistent state) + Phase 2 (sudden changes) - 10 anomaly types
 - ✅ **K8s Client Layer**: HPA collection and snapshot creation
 - ✅ **Prometheus Client Layer**: Metrics enrichment with PromQL queries
 - ✅ **Collector Layer**: Unified orchestration of K8s + Prometheus + Analyzer
 - ✅ **Config Layer**: YAML-based configuration system
+- ✅ **Persistence Layer**: SQLite with auto-save/load and cleanup
 - 🔄 **TUI Layer**: Next (Phase 3)
 - ⚠️ **Alertmanager Layer**: Optional (not critical for MVP)
 
@@ -35,10 +36,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### KISS in Practice
 
 - **Monitoring loop**: Simple goroutine per cluster, no complex scheduling
-- **Data storage**: In-memory time-series (5min), optional SQLite for persistence - no complex databases
+- **Data storage**: Hybrid approach - RAM (5min fast access) + SQLite (24h persistence)
 - **Alert correlation**: Basic grouping by cluster/namespace/HPA - no ML/AI complexity
 - **TUI**: Bubble Tea standard patterns - no custom frameworks
 - **Error handling**: Clear error messages, graceful degradation - no silent failures
+- **Persistence**: Auto-save to SQLite (async), auto-load on startup, auto-cleanup old data
 
 If a solution feels complex, it probably is. Step back and find the simpler approach.
 
@@ -80,15 +82,18 @@ hpa-watchdog/
 │   └── main.go                    # Entry point
 ├── internal/
 │   ├── analyzer/                  # ✅ IMPLEMENTED
-│   │   ├── detector.go            # Anomaly detector with 5 types
-│   │   ├── detector_test.go       # 12 unit tests (all passing)
+│   │   ├── detector.go            # Anomaly detector with 10 types (Phase 1 + Phase 2)
+│   │   ├── detector_test.go       # 12 unit tests (Phase 1)
+│   │   ├── sudden_changes_test.go # 8 unit tests (Phase 2)
 │   │   └── README.md              # Documentation
 │   ├── storage/                   # ✅ IMPLEMENTED
-│   │   ├── cache.go               # Time-series cache with stats
-│   │   ├── cache_test.go          # Comprehensive tests
+│   │   ├── cache.go               # Time-series cache with persistence integration
+│   │   ├── cache_test.go          # 12 cache tests
+│   │   ├── persistence.go         # SQLite persistence layer
+│   │   ├── persistence_test.go    # 8 persistence tests
 │   │   └── README.md              # Documentation
 │   ├── models/                    # ✅ IMPLEMENTED
-│   │   └── types.go               # HPASnapshot, TimeSeriesData, HPAStats
+│   │   └── types.go               # HPASnapshot, TimeSeriesData, HPAStats, GetPrevious()
 │   ├── monitor/                   # 🔄 TODO
 │   │   ├── collector.go           # Unified collector (K8s + Prometheus + Alertmanager)
 │   │   ├── analyzer.go            # Anomaly detection
@@ -167,7 +172,7 @@ go test ./tests/integration/...
 - **github.com/spf13/viper**: Configuration management
 - **github.com/guptarohit/asciigraph**: ASCII charts for metrics
 - **github.com/rs/zerolog**: Structured logging
-- **github.com/mattn/go-sqlite3** (optional): Persistence
+- **github.com/mattn/go-sqlite3**: SQLite persistence (required for production)
 
 ## Important Prometheus Queries
 
@@ -212,6 +217,72 @@ Key sections:
 - **Alertmanager**: Tries common service patterns in monitoring namespace
 - **Fallback**: Uses Kubernetes Metrics-Server if Prometheus unavailable
 
+## Data Persistence Strategy
+
+### Hybrid Storage: RAM + SQLite ✅
+
+**Why Hybrid?**
+- **RAM (5min)**: Ultra-fast access for comparisons and anomaly detection
+- **SQLite (24h)**: Persistent storage survives restarts, enables historical analysis
+
+### Implementation (`internal/storage/`)
+
+#### In-Memory Cache (TimeSeriesCache)
+```go
+cache := storage.NewTimeSeriesCache(&CacheConfig{
+    MaxDuration:  5 * time.Minute,  // Sliding window
+    ScanInterval: 30 * time.Second,  // ~10 snapshots per HPA
+})
+```
+
+- **Fast access**: O(1) lookup by cluster/namespace/name
+- **Auto-cleanup**: Removes snapshots older than 5 minutes
+- **Statistics**: Pre-calculated CPU/Memory trends, replica changes
+- **Thread-safe**: sync.RWMutex for concurrent access
+
+#### SQLite Persistence
+```go
+persist, _ := storage.NewPersistence(&PersistenceConfig{
+    Enabled:     true,
+    DBPath:      "~/.hpa-watchdog/snapshots.db",
+    MaxAge:      24 * time.Hour,
+    AutoCleanup: true,
+})
+
+cache.SetPersistence(persist)  // Auto-save enabled!
+```
+
+**Features**:
+- **Auto-save**: Every snapshot added to cache is saved to SQLite (async)
+- **Auto-load**: On startup, loads last 5 minutes from SQLite to RAM
+- **Auto-cleanup**: Removes snapshots older than 24h
+- **Batch operations**: Efficient bulk inserts/queries
+- **Schema**: Simple table with JSON serialization of snapshots
+
+**Database Schema**:
+```sql
+CREATE TABLE snapshots (
+    cluster TEXT,
+    namespace TEXT,
+    hpa_name TEXT,
+    timestamp DATETIME,
+    data TEXT  -- Full HPASnapshot as JSON
+)
+```
+
+**Storage Estimates** (24 clusters, 2400 HPAs):
+- Memory: ~12 MB (5min window)
+- SQLite: ~3.3 GB (24h retention, auto-cleanup)
+- Scan time: <5s per cluster (2880 scans/day)
+
+### Persistence Benefits for Multi-Cluster
+
+1. **Survives Restarts**: No data loss when HPA Watchdog restarts
+2. **Immediate Detection**: Detects sudden changes from first scan (loads previous state)
+3. **Historical Analysis**: 24h of data for trend analysis and debugging
+4. **Low Memory**: Only 5min in RAM, rest in SQLite
+5. **Performance**: Async saves don't block monitoring loop
+
 ## Monitoring Loop
 
 Each cluster runs an independent goroutine:
@@ -221,11 +292,13 @@ Each cluster runs an independent goroutine:
    - Get config from K8s API
    - Query metrics from Prometheus (current + 5min history)
    - Create HPASnapshot
-   - Store in time-series cache
+   - Store in time-series cache → **Auto-saved to SQLite**
 4. Sync alerts from Alertmanager
-5. Analyze snapshots for anomalies not covered by Prometheus rules
+5. Analyze snapshots for anomalies (both persistent and sudden changes)
 6. Send unified alerts to TUI via channels
 7. Sleep until next scan interval
+
+**On Startup**: Load last 5 minutes from SQLite → Ready to detect changes immediately!
 
 ## Anomaly Detection
 
@@ -236,8 +309,8 @@ Each cluster runs an independent goroutine:
 - Provides centralized multi-cluster view
 - Allows silence management directly from TUI
 
-### Watchdog Analyzer - Phase 1 MVP ✅
-The analyzer package (`internal/analyzer/`) implements 5 critical anomaly detectors:
+### Watchdog Analyzer - Phase 1: Persistent State Anomalies ✅
+The analyzer package (`internal/analyzer/`) implements 5 anomaly detectors for persistent problematic states:
 
 | # | Anomaly | Condition | Duration | Status |
 |---|---------|-----------|----------|--------|
@@ -247,21 +320,34 @@ The analyzer package (`internal/analyzer/`) implements 5 critical anomaly detect
 | 4 | **Pods Not Ready** | Pods not ready | 3min | ✅ Implemented |
 | 5 | **High Error Rate** | >5% errors 5xx (Prometheus) | 2min | ✅ Implemented |
 
-**Key Features**:
-- Duration-based detection: Anomalies must persist for minimum time before alerting
-- Configurable thresholds: All detection parameters are customizable
-- Action suggestions: Each anomaly includes remediation actions
-- Integration with storage: Uses pre-calculated stats from TimeSeriesCache
-
 **Testing**: 12/12 unit tests passing (see `internal/analyzer/detector_test.go`)
 
-### Phase 2 Anomalies (Planned)
-Additional patterns for more comprehensive monitoring:
-- **Scaling Stuck**: HPA unable to scale when needed
-- **CPU Throttling**: Container CPU throttling detected
-- **High Latency**: P95 latency significantly elevated
-- **Underutilization**: Resources significantly underutilized
-- **CrashLoopBackOff**: Pods crashing repeatedly
+### Watchdog Analyzer - Phase 2: Sudden Changes ✅
+Detects abrupt variations between consecutive scans (scan-to-scan comparison):
+
+| # | Anomaly | Condition | Threshold | Status |
+|---|---------|-----------|-----------|--------|
+| 6 | **CPU Spike** | CPU aumentou >50% em 1 scan | +50% | ✅ Implemented |
+| 7 | **Replica Spike** | Replicas aumentaram em 1 scan | +3 | ✅ Implemented |
+| 8 | **Error Spike** | Error rate aumentou em 1 scan | +5% | ✅ Implemented |
+| 9 | **Latency Spike** | Latency aumentou >100% em 1 scan | +100% | ✅ Implemented |
+| 10 | **CPU Drop** | CPU caiu >50% em 1 scan | -50% | ✅ Implemented |
+
+**Key Features**:
+- **Scan-to-scan comparison**: Compares latest snapshot with previous snapshot (no Prometheus queries needed)
+- **Fast detection**: Identifies sudden changes immediately (within one scan interval)
+- **Local cache**: Uses `GetPrevious()` from TimeSeriesData for instant comparison
+- **Configurable thresholds**: All spike thresholds are customizable
+- **Action suggestions**: Each anomaly includes remediation actions
+
+**Testing**: 8/8 unit tests passing (see `internal/analyzer/sudden_changes_test.go`)
+
+### Combined Detection Strategy
+The analyzer runs both phases on every scan:
+1. **Phase 1** detects persistent problematic states (requires duration)
+2. **Phase 2** detects sudden variations (requires 2 snapshots)
+
+Total: **10 anomaly types** covering both gradual trends and abrupt changes.
 
 ## TUI Navigation
 

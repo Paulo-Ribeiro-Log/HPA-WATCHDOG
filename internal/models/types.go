@@ -137,6 +137,18 @@ func (ts *TimeSeriesData) GetLatest() *HPASnapshot {
 	return &ts.Snapshots[len(ts.Snapshots)-1]
 }
 
+// GetPrevious retorna o penúltimo snapshot (anterior ao latest)
+// Usado para detectar variações bruscas entre scans
+func (ts *TimeSeriesData) GetPrevious() *HPASnapshot {
+	ts.RLock()
+	defer ts.RUnlock()
+
+	if len(ts.Snapshots) < 2 {
+		return nil
+	}
+	return &ts.Snapshots[len(ts.Snapshots)-2]
+}
+
 // GetHistory retorna todos os snapshots
 func (ts *TimeSeriesData) GetHistory() []HPASnapshot {
 	ts.RLock()

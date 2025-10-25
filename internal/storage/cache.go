@@ -17,6 +17,7 @@ type TimeSeriesCache struct {
 	scanInterval  time.Duration
 	maxSnapshots  int
 	totalSnapshots int64
+	persistence   *Persistence // Persistência em SQLite (opcional)
 	mu            sync.RWMutex
 }
 
@@ -56,7 +57,64 @@ func NewTimeSeriesCache(config *CacheConfig) *TimeSeriesCache {
 		maxDuration:  config.MaxDuration,
 		scanInterval: config.ScanInterval,
 		maxSnapshots: maxSnapshots,
+		persistence:  nil, // Será configurado via SetPersistence()
 	}
+}
+
+// SetPersistence configura persistência no cache
+func (c *TimeSeriesCache) SetPersistence(p *Persistence) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.persistence = p
+
+	if p != nil && p.config.Enabled {
+		log.Info().Msg("Persistence enabled for cache")
+
+		// Carrega snapshots existentes do banco
+		go c.loadFromPersistence()
+	}
+}
+
+// loadFromPersistence carrega snapshots do banco ao iniciar
+func (c *TimeSeriesCache) loadFromPersistence() {
+	if c.persistence == nil || !c.persistence.config.Enabled {
+		return
+	}
+
+	// Carrega snapshots dos últimos MaxDuration (5min)
+	since := time.Now().Add(-c.maxDuration)
+
+	snapshots, err := c.persistence.LoadAll(since)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to load snapshots from database")
+		return
+	}
+
+	if len(snapshots) == 0 {
+		log.Info().Msg("No snapshots loaded from database")
+		return
+	}
+
+	// Adiciona snapshots ao cache
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	loadedCount := 0
+	for key, snaps := range snapshots {
+		ts := &models.TimeSeriesData{
+			HPAKey:      key,
+			Snapshots:   snaps,
+			MaxDuration: c.maxDuration,
+		}
+		c.data[key] = ts
+		c.calculateStats(ts)
+		loadedCount += len(snaps)
+	}
+
+	log.Info().
+		Int("hpas", len(snapshots)).
+		Int("snapshots", loadedCount).
+		Msg("Snapshots loaded from database into cache")
 }
 
 // Add adiciona snapshot ao cache
@@ -93,6 +151,18 @@ func (c *TimeSeriesCache) Add(snapshot *models.HPASnapshot) error {
 
 	// Calcula estatísticas
 	c.calculateStats(ts)
+
+	// Salva no banco (async)
+	if c.persistence != nil && c.persistence.config.Enabled {
+		go func(s *models.HPASnapshot) {
+			if err := c.persistence.SaveSnapshot(s); err != nil {
+				log.Warn().
+					Err(err).
+					Str("hpa", s.Name).
+					Msg("Failed to persist snapshot")
+			}
+		}(snapshot)
+	}
 
 	return nil
 }
@@ -437,4 +507,17 @@ func (c *TimeSeriesCache) MemoryUsage() int64 {
 	}
 
 	return totalBytes
+}
+
+// Close fecha recursos do cache (persistence)
+func (c *TimeSeriesCache) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.persistence != nil {
+		log.Info().Msg("Closing cache persistence")
+		return c.persistence.Close()
+	}
+
+	return nil
 }
