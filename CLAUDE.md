@@ -6,8 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **HPA Watchdog** is an autonomous monitoring system for Kubernetes Horizontal Pod Autoscalers (HPAs) across multiple clusters. It features a rich Terminal UI (TUI) built with Bubble Tea and Lipgloss, providing real-time monitoring, anomaly detection, and centralized alert management.
 
-**Status**: 🟡 Planning Phase
+**Status**: 🟢 Development Phase - Core Components Implemented
 **Target**: Multi-cluster HPA monitoring with Prometheus + Alertmanager integration
+
+### Implementation Status
+- ✅ **Storage Layer**: In-memory time-series cache with statistics (5min sliding window)
+- ✅ **Analyzer Layer**: Phase 1 MVP with 5 critical anomaly detectors
+- 🔄 **Collector Layer**: In progress
+- 🔄 **TUI Layer**: Planned
+- 🔄 **Config Layer**: Planned
 
 ## Core Philosophy: KISS (Keep It Simple, Stupid)
 
@@ -69,31 +76,36 @@ hpa-watchdog/
 ├── cmd/
 │   └── main.go                    # Entry point
 ├── internal/
-│   ├── monitor/
+│   ├── analyzer/                  # ✅ IMPLEMENTED
+│   │   ├── detector.go            # Anomaly detector with 5 types
+│   │   ├── detector_test.go       # 12 unit tests (all passing)
+│   │   └── README.md              # Documentation
+│   ├── storage/                   # ✅ IMPLEMENTED
+│   │   ├── cache.go               # Time-series cache with stats
+│   │   ├── cache_test.go          # Comprehensive tests
+│   │   └── README.md              # Documentation
+│   ├── models/                    # ✅ IMPLEMENTED
+│   │   └── types.go               # HPASnapshot, TimeSeriesData, HPAStats
+│   ├── monitor/                   # 🔄 TODO
 │   │   ├── collector.go           # Unified collector (K8s + Prometheus + Alertmanager)
 │   │   ├── analyzer.go            # Anomaly detection
 │   │   └── alerter.go             # Alert system
-│   ├── prometheus/
+│   ├── prometheus/                # 🔄 TODO
 │   │   ├── client.go              # Prometheus API wrapper
 │   │   ├── queries.go             # Predefined PromQL queries
 │   │   └── discovery.go           # Auto-discovery of endpoints
-│   ├── alertmanager/
+│   ├── alertmanager/              # 🔄 TODO
 │   │   └── client.go              # Alertmanager API wrapper
-│   ├── storage/
-│   │   ├── timeseries.go          # Time-series cache (reduced - Prometheus has history)
-│   │   └── persistence.go         # Optional SQLite persistence
-│   ├── config/
+│   ├── config/                    # 🔄 TODO
 │   │   ├── loader.go              # Config loading
 │   │   ├── thresholds.go          # Threshold management
 │   │   └── clusters.go            # Cluster discovery
-│   ├── tui/
-│   │   ├── app.go                 # Main Bubble Tea app
-│   │   ├── views.go               # View rendering
-│   │   ├── handlers.go            # Event handlers
-│   │   ├── components/            # UI components (dashboard, alerts, charts, config)
-│   │   └── styles.go              # Lipgloss styles
-│   └── models/
-│       └── types.go               # Data structures
+│   └── tui/                       # 🔄 TODO
+│       ├── app.go                 # Main Bubble Tea app
+│       ├── views.go               # View rendering
+│       ├── handlers.go            # Event handlers
+│       ├── components/            # UI components (dashboard, alerts, charts, config)
+│       └── styles.go              # Lipgloss styles
 ├── configs/
 │   └── watchdog.yaml              # Default configuration
 └── HPA_WATCHDOG_*.md              # Specification documents
@@ -221,13 +233,32 @@ Each cluster runs an independent goroutine:
 - Provides centralized multi-cluster view
 - Allows silence management directly from TUI
 
-### Watchdog Detection (Complementary)
-Detects patterns not easily captured by simple PromQL:
-- **Replica Oscillation**: Rapid scaling up/down (>5 changes in 5min)
+### Watchdog Analyzer - Phase 1 MVP ✅
+The analyzer package (`internal/analyzer/`) implements 5 critical anomaly detectors:
+
+| # | Anomaly | Condition | Duration | Status |
+|---|---------|-----------|----------|--------|
+| 1 | **Oscillation** | >5 replica changes | 5min | ✅ Implemented |
+| 2 | **Maxed Out** | replicas=max + CPU>target+20% | 2min | ✅ Implemented |
+| 3 | **OOMKilled** | Pod killed by OOM | - | 🔴 Placeholder |
+| 4 | **Pods Not Ready** | Pods not ready | 3min | ✅ Implemented |
+| 5 | **High Error Rate** | >5% errors 5xx (Prometheus) | 2min | ✅ Implemented |
+
+**Key Features**:
+- Duration-based detection: Anomalies must persist for minimum time before alerting
+- Configurable thresholds: All detection parameters are customizable
+- Action suggestions: Each anomaly includes remediation actions
+- Integration with storage: Uses pre-calculated stats from TimeSeriesCache
+
+**Testing**: 12/12 unit tests passing (see `internal/analyzer/detector_test.go`)
+
+### Phase 2 Anomalies (Planned)
+Additional patterns for more comprehensive monitoring:
 - **Scaling Stuck**: HPA unable to scale when needed
-- **Target Deviation**: Current metrics significantly above/below target
-- **Config Changes**: HPA min/max or deployment resources modified
-- **Complex Correlations**: Multiple metrics indicating systemic issues
+- **CPU Throttling**: Container CPU throttling detected
+- **High Latency**: P95 latency significantly elevated
+- **Underutilization**: Resources significantly underutilized
+- **CrashLoopBackOff**: Pods crashing repeatedly
 
 ## TUI Navigation
 
@@ -301,34 +332,54 @@ Example: CPU spike → maxed out replicas → high errors → high latency all c
 
 ## Roadmap Status
 
-### Phase 1: MVP (Current)
-- Project setup and structure
-- Core monitoring (K8s + Prometheus)
-- Alertmanager client integration
-- Basic TUI (dashboard + alerts)
-- Config system
+### Phase 1: Foundation ✅ (Completed)
+- ✅ Project setup and structure
+- ✅ Data models (HPASnapshot, TimeSeriesData, HPAStats)
+- ✅ In-memory time-series storage with statistics
+- ✅ Anomaly detector (5 critical anomalies)
+- ✅ Comprehensive unit tests (storage + analyzer)
+- ✅ Documentation (README for each package)
 
-### Phase 2: Advanced Features
-- Silence management via TUI
-- Alert correlation engine
-- Enhanced UI with ASCII charts
-- Advanced anomaly detection
-- SQLite persistence
+### Phase 2: Integration (Current)
+- 🔄 K8s client integration
+- 🔄 Prometheus client integration
+- 🔄 Alertmanager client integration
+- 🔄 Unified collector (K8s + Prometheus + Alertmanager)
+- 🔄 Monitoring loop implementation
+- 🔄 Config system with YAML support
 
-### Phase 3: Production Ready
-- Systemd service file
-- Docker image
-- Webhook notifications (Slack, Discord, Teams)
-- Performance optimization
-- Comprehensive testing
+### Phase 3: User Interface
+- 🔄 Basic TUI (Bubble Tea)
+- 🔄 Dashboard view (multi-cluster overview)
+- 🔄 Alerts view (with filtering)
+- 🔄 Cluster detail view
+- 🔄 ASCII charts for metrics
+- 🔄 Config modal
+
+### Phase 4: Advanced Features
+- 🔄 Alert correlation engine
+- 🔄 Silence management via TUI
+- 🔄 Enhanced anomaly detection (Phase 2 anomalies)
+- 🔄 SQLite persistence (optional)
+- 🔄 Auto-discovery (clusters, Prometheus, Alertmanager)
+
+### Phase 5: Production Ready
+- 🔄 Systemd service file
+- 🔄 Docker image
+- 🔄 Webhook notifications (Slack, Discord, Teams)
+- 🔄 Performance optimization
+- 🔄 Integration tests
+- 🔄 CI/CD pipeline
 
 ## Common Patterns
 
 ### Adding a New Anomaly Type
-1. Define type in `internal/models/types.go` (`AnomalyType`)
-2. Add threshold config in `configs/watchdog.yaml`
-3. Implement detection logic in `internal/monitor/analyzer.go`
-4. Add TUI rendering in `internal/tui/components/alerts_panel.go`
+1. Add anomaly type constant in `internal/analyzer/detector.go` (`AnomalyType`)
+2. Add threshold config in `DetectorConfig` struct
+3. Implement detection method (e.g., `detectNewAnomaly()`)
+4. Call detection method in `Detect()` loop
+5. Add unit tests in `internal/analyzer/detector_test.go`
+6. Update README with new anomaly details
 
 ### Adding a New Prometheus Query
 1. Define query template in `internal/prometheus/queries.go`

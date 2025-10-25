@@ -82,7 +82,30 @@ type TimeSeriesData struct {
 	HPAKey      string // "cluster/namespace/name"
 	Snapshots   []HPASnapshot
 	MaxDuration time.Duration // 5 minutos
+	Stats       HPAStats      // Estatísticas calculadas
 	sync.RWMutex
+}
+
+// HPAStats estatísticas calculadas do histórico
+type HPAStats struct {
+	// CPU Statistics
+	CPUAverage float64
+	CPUMin     float64
+	CPUMax     float64
+	CPUStdDev  float64
+	CPUTrend   string // "increasing", "decreasing", "stable"
+
+	// Memory Statistics
+	MemoryAverage float64
+	MemoryMin     float64
+	MemoryMax     float64
+	MemoryStdDev  float64
+	MemoryTrend   string // "increasing", "decreasing", "stable"
+
+	// Replica Changes
+	ReplicaChanges int       // Quantas mudanças em 5min
+	LastChange     time.Time // Último scale event
+	ReplicaTrend   string    // "increasing", "decreasing", "stable"
 }
 
 // Add adiciona um snapshot ao histórico
