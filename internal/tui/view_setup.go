@@ -83,23 +83,35 @@ func (m Model) renderSetup() string {
 }
 
 func (m Model) renderSetupProgress() string {
-	steps := []string{
-		"Modo",
-		"Ambiente/Targets",
-		"Intervalo",
-		"Duração",
-		"Confirmar",
+	// Steps variam baseado no modo
+	var steps []string
+	if m.setupState.config.Mode == scanner.ScanModeFull {
+		steps = []string{"Modo", "Ambiente", "Intervalo", "Duração", "Confirmar"}
+	} else {
+		steps = []string{"Modo", "Targets", "Intervalo", "Duração", "Confirmar"}
 	}
+
+	// Mapeia step atual para índice visual
+	stepIndex := map[SetupStep]int{
+		SetupStepMode:        0,
+		SetupStepEnvironment: 1, // Modo Full
+		SetupStepTargets:     1, // Modo Individual/StressTest (mesmo índice visual)
+		SetupStepInterval:    2,
+		SetupStepDuration:    3,
+		SetupStepConfirm:     4,
+	}
+
+	currentIndex := stepIndex[m.setupState.currentStep]
 
 	var renderedSteps []string
 	for i, step := range steps {
 		style := lipgloss.NewStyle().Foreground(ColorTextMuted)
 
-		if i < int(m.setupState.currentStep) {
+		if i < currentIndex {
 			// Completo
 			style = style.Foreground(ColorSuccess).Bold(true)
 			step = "✓ " + step
-		} else if i == int(m.setupState.currentStep) {
+		} else if i == currentIndex {
 			// Atual
 			style = style.Foreground(ColorPrimary).Bold(true)
 			step = "▶ " + step
@@ -482,7 +494,14 @@ func (m Model) handleSetupSelect() (tea.Model, tea.Cmd) {
 	case SetupStepMode:
 		// Seleciona modo baseado no cursor
 		m.setupState.config.Mode = scanner.ScanMode(m.setupState.cursorPos)
-		m.setupState.currentStep = SetupStepEnvironment
+
+		// Modo Full precisa escolher ambiente (PRD/HLG)
+		// Modos Individual e StressTest vão direto para seleção de targets
+		if m.setupState.config.Mode == scanner.ScanModeFull {
+			m.setupState.currentStep = SetupStepEnvironment
+		} else {
+			m.setupState.currentStep = SetupStepTargets
+		}
 		m.setupState.cursorPos = 0
 
 	case SetupStepEnvironment:

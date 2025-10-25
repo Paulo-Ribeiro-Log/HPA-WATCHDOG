@@ -35,8 +35,15 @@ all: clean deps build
 build:
 	@echo "Building $(BINARY_NAME) $(VERSION)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)/main.go
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)/hpa-watchdog/main.go
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+
+## build-test-tui: Build test TUI with mock data
+build-test-tui:
+	@echo "Building test-tui..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) -o $(BUILD_DIR)/test-tui ./$(CMD_DIR)/test-tui/main.go
+	@echo "Build complete: $(BUILD_DIR)/test-tui"
 
 ## build-linux: Build for Linux
 build-linux:
