@@ -19,6 +19,26 @@ func (m Model) renderDashboard() string {
 	tabs := m.renderTabs()
 	content.WriteString(tabs + "\n\n")
 
+	// Se não houver dados ainda, mostra mensagem de aguardo
+	if len(m.clusters) == 0 && len(m.snapshots) == 0 {
+		emptyMsg := BoxStyle.Copy().Width(m.width - 4).Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				"",
+				StatusInfoStyle.Render("⏳ Aguardando primeiros dados..."),
+				"",
+				lipgloss.NewStyle().Foreground(ColorTextMuted).Render("O scan foi iniciado. Os primeiros dados aparecerão em breve."),
+				lipgloss.NewStyle().Foreground(ColorTextMuted).Render("Isso pode levar alguns segundos dependendo do cluster."),
+				"",
+			),
+		)
+		content.WriteString(emptyMsg + "\n\n")
+
+		// Footer
+		footer := m.renderFooter()
+		content.WriteString(footer)
+		return content.String()
+	}
+
 	// Métricas gerais (3 colunas)
 	metrics := m.renderMetricsRow()
 	content.WriteString(metrics + "\n\n")
