@@ -83,22 +83,22 @@ func (m Model) renderSetup() string {
 }
 
 func (m Model) renderSetupProgress() string {
-	// Steps variam baseado no modo
+	// Steps - agora todos os modos incluem seleção de ambiente
 	var steps []string
 	if m.setupState.config.Mode == scanner.ScanModeFull {
 		steps = []string{"Modo", "Ambiente", "Intervalo", "Duração", "Confirmar"}
 	} else {
-		steps = []string{"Modo", "Targets", "Intervalo", "Duração", "Confirmar"}
+		steps = []string{"Modo", "Ambiente", "Targets", "Intervalo", "Duração", "Confirmar"}
 	}
 
 	// Mapeia step atual para índice visual
 	stepIndex := map[SetupStep]int{
 		SetupStepMode:        0,
-		SetupStepEnvironment: 1, // Modo Full
-		SetupStepTargets:     1, // Modo Individual/StressTest (mesmo índice visual)
-		SetupStepInterval:    2,
-		SetupStepDuration:    3,
-		SetupStepConfirm:     4,
+		SetupStepEnvironment: 1, // Todos os modos
+		SetupStepTargets:     2, // Individual/StressTest (após ambiente)
+		SetupStepInterval:    m.getIntervalStepIndex(),
+		SetupStepDuration:    m.getDurationStepIndex(),
+		SetupStepConfirm:     m.getConfirmStepIndex(),
 	}
 
 	currentIndex := stepIndex[m.setupState.currentStep]
@@ -204,6 +204,16 @@ func (m Model) renderStepEnvironment() string {
 	lines = append(lines, SectionTitleStyle.Render("🌍 Selecione o Ambiente"))
 	lines = append(lines, "")
 
+	// Explicação baseada no modo
+	var modeHint string
+	if m.setupState.config.Mode == scanner.ScanModeFull {
+		modeHint = "Os clusters do ambiente selecionado serão escaneados automaticamente"
+	} else {
+		modeHint = "Apenas clusters do ambiente selecionado estarão disponíveis para seleção"
+	}
+	lines = append(lines, lipgloss.NewStyle().Foreground(ColorTextMuted).Render(modeHint))
+	lines = append(lines, "")
+
 	environments := []struct {
 		env         scanner.Environment
 		title       string
@@ -212,12 +222,12 @@ func (m Model) renderStepEnvironment() string {
 		{
 			env:         scanner.EnvironmentPRD,
 			title:       "PRD - Produção",
-			description: "Todos os clusters *-prd-admin",
+			description: "Filtra clusters *-prd-admin",
 		},
 		{
 			env:         scanner.EnvironmentHLG,
 			title:       "HLG - Homologação",
-			description: "Todos os clusters *-hlg-admin",
+			description: "Filtra clusters *-hlg-admin",
 		},
 	}
 
@@ -495,34 +505,32 @@ func (m Model) handleSetupSelect() (tea.Model, tea.Cmd) {
 		// Seleciona modo baseado no cursor
 		m.setupState.config.Mode = scanner.ScanMode(m.setupState.cursorPos)
 
-		// Modo Full precisa escolher ambiente (PRD/HLG)
-		// Modos Individual e StressTest vão direto para seleção de targets
-		if m.setupState.config.Mode == scanner.ScanModeFull {
-			m.setupState.currentStep = SetupStepEnvironment
-		} else {
-			m.setupState.currentStep = SetupStepTargets
-		}
+		// Todos os modos agora passam por seleção de ambiente
+		m.setupState.currentStep = SetupStepEnvironment
 		m.setupState.cursorPos = 0
 
 	case SetupStepEnvironment:
-		// Seleciona ambiente (apenas para modo Full)
+		// Seleciona ambiente (para todos os modos)
+		if m.setupState.cursorPos == 0 {
+			m.setupState.config.Environment = scanner.EnvironmentPRD
+		} else {
+			m.setupState.config.Environment = scanner.EnvironmentHLG
+		}
+
+		// Filtra clusters disponíveis baseado no ambiente
+		var pattern string
+		if m.setupState.config.Environment == scanner.EnvironmentPRD {
+			pattern = "*-prd-admin"
+		} else {
+			pattern = "*-hlg-admin"
+		}
+
+		// Filtra clusters disponíveis
+		allClusters, _ := scanner.LoadClustersFromKubeconfig()
+		filtered := scanner.FilterClustersByPattern(allClusters, pattern)
+
 		if m.setupState.config.Mode == scanner.ScanModeFull {
-			if m.setupState.cursorPos == 0 {
-				m.setupState.config.Environment = scanner.EnvironmentPRD
-			} else {
-				m.setupState.config.Environment = scanner.EnvironmentHLG
-			}
-
-			// Filtra clusters disponíveis baseado no ambiente
-			var pattern string
-			if m.setupState.config.Environment == scanner.EnvironmentPRD {
-				pattern = "*-prd-admin"
-			} else {
-				pattern = "*-hlg-admin"
-			}
-
-			// Filtra e auto-seleciona clusters do ambiente
-			filtered := scanner.FilterClustersByPattern(m.setupState.availableClusters, pattern)
+			// Modo Full: auto-seleciona todos os clusters do ambiente
 			m.setupState.selectedTargets = make([]scanner.ScanTarget, len(filtered))
 			for i, cluster := range filtered {
 				m.setupState.selectedTargets[i] = scanner.ScanTarget{
@@ -536,7 +544,9 @@ func (m Model) handleSetupSelect() (tea.Model, tea.Cmd) {
 			// Pula step de Targets no modo Full (já auto-selecionou)
 			m.setupState.currentStep = SetupStepInterval
 		} else {
-			// Modo Individual/StressTest vai para seleção manual
+			// Modos Individual/StressTest: atualiza clusters disponíveis e vai para seleção manual
+			m.setupState.availableClusters = filtered
+			m.setupState.selectedTargets = []scanner.ScanTarget{} // Limpa seleção
 			m.setupState.currentStep = SetupStepTargets
 		}
 		m.setupState.cursorPos = 0
@@ -708,4 +718,28 @@ func (m Model) selectAllTargets() (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// getIntervalStepIndex retorna índice do step de intervalo baseado no modo
+func (m Model) getIntervalStepIndex() int {
+	if m.setupState.config.Mode == scanner.ScanModeFull {
+		return 2 // Modo, Ambiente, Intervalo
+	}
+	return 3 // Modo, Ambiente, Targets, Intervalo
+}
+
+// getDurationStepIndex retorna índice do step de duração baseado no modo
+func (m Model) getDurationStepIndex() int {
+	if m.setupState.config.Mode == scanner.ScanModeFull {
+		return 3 // Modo, Ambiente, Intervalo, Duração
+	}
+	return 4 // Modo, Ambiente, Targets, Intervalo, Duração
+}
+
+// getConfirmStepIndex retorna índice do step de confirmação baseado no modo
+func (m Model) getConfirmStepIndex() int {
+	if m.setupState.config.Mode == scanner.ScanModeFull {
+		return 4 // Modo, Ambiente, Intervalo, Duração, Confirmar
+	}
+	return 5 // Modo, Ambiente, Targets, Intervalo, Duração, Confirmar
 }
