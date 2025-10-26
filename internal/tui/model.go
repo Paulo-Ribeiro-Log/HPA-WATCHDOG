@@ -177,20 +177,38 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "tab":
 		// Navega entre as views principais (exceto Setup)
-		if m.currentView == ViewDetails {
+		// Ciclo: Dashboard -> Alertas -> Clusters -> Detalhes -> Dashboard
+		switch m.currentView {
+		case ViewDashboard:
+			m.currentView = ViewAlerts
+		case ViewAlerts:
+			m.currentView = ViewClusters
+		case ViewClusters:
+			m.currentView = ViewDetails
+		case ViewDetails:
 			m.currentView = ViewDashboard
-		} else if m.currentView >= ViewDashboard && m.currentView < ViewDetails {
-			m.currentView = m.currentView + 1
+		default:
+			// Se estiver em qualquer outra view (ex: Setup), vai para Dashboard
+			m.currentView = ViewDashboard
 		}
 		m.cursorPos = 0
 		return m, nil
 
 	case "shift+tab":
 		// Navega para trás entre as views principais (exceto Setup)
-		if m.currentView == ViewDashboard {
+		// Ciclo reverso: Dashboard -> Detalhes -> Clusters -> Alertas -> Dashboard
+		switch m.currentView {
+		case ViewDashboard:
 			m.currentView = ViewDetails
-		} else if m.currentView > ViewDashboard && m.currentView <= ViewDetails {
-			m.currentView = m.currentView - 1
+		case ViewAlerts:
+			m.currentView = ViewDashboard
+		case ViewClusters:
+			m.currentView = ViewAlerts
+		case ViewDetails:
+			m.currentView = ViewClusters
+		default:
+			// Se estiver em qualquer outra view (ex: Setup), vai para Dashboard
+			m.currentView = ViewDashboard
 		}
 		m.cursorPos = 0
 		return m, nil
