@@ -68,13 +68,14 @@ type Model struct {
 
 // ClusterInfo informações resumidas de um cluster
 type ClusterInfo struct {
-	Name           string
-	TotalHPAs      int                 // Total de HPAs únicos descobertos
-	TotalAnomalies int
-	TotalScans     int                 // Quantidade de ciclos de scan completos
-	Status         string              // "Online", "Offline", "Error"
-	LastScan       time.Time           // Último snapshot recebido
-	hpasDiscovered map[string]struct{} // Conjunto de HPAs únicos descobertos
+	Name              string
+	TotalHPAs         int                 // Total de HPAs únicos descobertos
+	TotalAnomalies    int
+	TotalScans        int                 // Quantidade de ciclos de scan completos
+	Status            string              // "Online", "Offline", "Error"
+	LastScan          time.Time           // Último snapshot recebido
+	lastKnownScanTime time.Time           // Timestamp do último ciclo de scan registrado (interno)
+	hpasDiscovered    map[string]struct{} // Conjunto de HPAs únicos descobertos
 }
 
 // New cria nova instância do model
@@ -303,10 +304,20 @@ func (m *Model) handleSnapshot(snapshot *models.HPASnapshot) {
 	cluster.hpasDiscovered[hpaKey] = struct{}{}
 	cluster.TotalHPAs = len(cluster.hpasDiscovered)
 
-	// TotalScans será incrementado apenas quando um ciclo completo terminar
-	// (removido incremento incorreto aqui)
+	// Detecta novo ciclo de scan baseado em mudança significativa no timestamp
+	// Se LastScan mudou mais de 10 segundos desde o último conhecido, é um novo ciclo
+	currentTime := time.Now()
+	if cluster.lastKnownScanTime.IsZero() {
+		// Primeiro scan deste cluster
+		cluster.TotalScans = 1
+		cluster.lastKnownScanTime = currentTime
+	} else if currentTime.Sub(cluster.lastKnownScanTime) > 10*time.Second {
+		// Novo ciclo de scan detectado
+		cluster.TotalScans++
+		cluster.lastKnownScanTime = currentTime
+	}
 
-	cluster.LastScan = time.Now()
+	cluster.LastScan = currentTime
 }
 
 // handleAnomaly processa nova anomalia
