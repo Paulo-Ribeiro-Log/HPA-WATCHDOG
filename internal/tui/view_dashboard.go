@@ -129,10 +129,18 @@ func (m Model) renderTabs() string {
 		"Detalhes",
 	}
 
+	// Mapeia corretamente tab index para ViewType (pula ViewSetup que é índice 0)
+	viewMapping := []ViewType{
+		ViewDashboard, // Tab 0
+		ViewAlerts,    // Tab 1
+		ViewClusters,  // Tab 2
+		ViewDetails,   // Tab 3
+	}
+
 	var rendered []string
 	for i, tab := range tabs {
 		style := TabStyle
-		if ViewType(i) == m.currentView {
+		if viewMapping[i] == m.currentView {
 			style = TabActiveStyle
 		}
 		rendered = append(rendered, style.Render(tab))
