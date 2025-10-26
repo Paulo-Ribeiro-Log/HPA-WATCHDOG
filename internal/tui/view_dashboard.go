@@ -53,6 +53,32 @@ func (m Model) renderHeader(title string) string {
 		} else {
 			status = StatusOKStyle.Render("● RODANDO")
 		}
+
+		// Adiciona tempo restante se configurado
+		if m.setupState != nil && m.setupState.config != nil {
+			remaining := m.GetTimeRemaining()
+			if remaining > 0 {
+				hours := int(remaining.Hours())
+				minutes := int(remaining.Minutes()) % 60
+				seconds := int(remaining.Seconds()) % 60
+
+				var timeStr string
+				if hours > 0 {
+					timeStr = fmt.Sprintf("%dh%dm%ds", hours, minutes, seconds)
+				} else if minutes > 0 {
+					timeStr = fmt.Sprintf("%dm%ds", minutes, seconds)
+				} else {
+					timeStr = fmt.Sprintf("%ds", seconds)
+				}
+
+				progress := m.GetScanProgress()
+				status += lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(
+					fmt.Sprintf(" | Restante: %s (%.0f%%)", timeStr, progress),
+				)
+			} else if m.setupState.config.Duration == 0 {
+				status += lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(" | ∞ Infinito")
+			}
+		}
 	} else {
 		status = StatusInfoStyle.Render("○ PARADO")
 	}
@@ -289,7 +315,7 @@ func (m Model) renderRecentAnomalies(limit int) string {
 }
 
 func (m Model) renderFooter() string {
-	help := "Tab: Mudar view  •  ↑↓/jk: Navegar  •  Enter: Selecionar  •  1-4: Filtros  •  R/F5: Refresh"
+	help := "Tab: Mudar view  •  H/Home: Primeira view  •  ↑↓/jk: Navegar  •  Enter: Selecionar  •  1-4: Filtros  •  R/F5: Refresh"
 
 	// Adiciona status de scan e tecla P se scan estiver rodando
 	if m.scanRunning {

@@ -1,246 +1,246 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Este arquivo fornece orientações ao Claude Code (claude.ai/code) ao trabalhar com o código neste repositório.
 
-## Project Overview
+## Visão Geral do Projeto
 
-**HPA Watchdog** is an autonomous monitoring system for Kubernetes Horizontal Pod Autoscalers (HPAs) across multiple clusters. It features a rich Terminal UI (TUI) built with Bubble Tea and Lipgloss, providing real-time monitoring, anomaly detection, and centralized alert management.
+**HPA Watchdog** é um sistema autônomo de monitoramento de Horizontal Pod Autoscalers (HPAs) do Kubernetes em múltiplos clusters. Ele oferece uma TUI (Terminal UI) rica construída com Bubble Tea e Lipgloss, fornecendo monitoramento em tempo real, detecção de anomalias e gerenciamento centralizado de alertas.
 
-**Status**: 🟢 Development Phase - Core Components Implemented
-**Target**: Multi-cluster HPA monitoring with Prometheus + Alertmanager integration
+**Status**: 🟢 Fase de desenvolvimento - Componentes principais implementados
+**Meta**: Monitoramento de HPAs multi-cluster com integração Prometheus + Alertmanager
 
-### Implementation Status
-- ✅ **Storage Layer**: In-memory time-series cache + SQLite persistence (24h retention)
-- ✅ **Analyzer Layer**: Phase 1 (persistent state) + Phase 2 (sudden changes) - 10 anomaly types
-- ✅ **K8s Client Layer**: HPA collection and snapshot creation
-- ✅ **Prometheus Client Layer**: Metrics enrichment with PromQL queries
-- ✅ **Collector Layer**: Unified orchestration of K8s + Prometheus + Analyzer
-- ✅ **Config Layer**: YAML-based configuration system
-- ✅ **Persistence Layer**: SQLite with auto-save/load and cleanup
-- 🔄 **TUI Layer**: Next (Phase 3)
-- ⚠️ **Alertmanager Layer**: Optional (not critical for MVP)
+### Status da Implementação
+- ✅ **Camada de Armazenamento**: Cache de séries temporais em memória + persistência em SQLite (retenção de 24h)
+- ✅ **Camada de Análise**: Fase 1 (estado persistente) + Fase 2 (mudanças súbitas) - 10 tipos de anomalia
+- ✅ **Camada de Cliente K8s**: Coleta de HPA e criação de snapshots
+- ✅ **Camada de Cliente Prometheus**: Enriquecimento de métricas com consultas PromQL
+- ✅ **Camada de Coleta**: Orquestração unificada de K8s + Prometheus + Analyzer
+- ✅ **Camada de Configuração**: Sistema de configuração baseado em YAML
+- ✅ **Camada de Persistência**: SQLite com auto-save/load e limpeza
+- 🔄 **Camada TUI**: Próxima (Fase 3)
+- ⚠️ **Camada Alertmanager**: Opcional (não crítica para o MVP)
 
-## Core Philosophy: KISS (Keep It Simple, Stupid)
+## Filosofia Central: KISS (Keep It Simple, Stupid)
 
-**IMPORTANT**: This project follows the KISS principle strictly. When developing:
+**IMPORTANTE**: Este projeto segue o princípio KISS à risca. Ao desenvolver:
 
-- **Prefer simplicity over cleverness** - Straightforward code beats "smart" solutions
-- **Don't over-engineer** - Build what's needed now, not what might be needed later
-- **Avoid premature optimization** - Make it work first, optimize only if proven necessary
-- **Use boring technology** - Proven libraries over new/trendy ones
-- **Clear over concise** - Readable code trumps shorter code
-- **One responsibility per component** - Each module should do one thing well
-- **Fail fast and obviously** - Better to crash with clear error than fail silently
-- **Configuration over code** - Make behavior configurable instead of hardcoding complex logic
+- **Prefira simplicidade a esperteza** - Código direto supera soluções "inteligentes"
+- **Evite superengenharia** - Construa o que é necessário agora, não o que pode ser necessário depois
+- **Evite otimização prematura** - Faça funcionar primeiro, otimize apenas se for realmente necessário
+- **Use tecnologia entediante** - Bibliotecas comprovadas em vez de novidades/ tendências
+- **Claro em vez de conciso** - Código legível vence código curto
+- **Uma responsabilidade por componente** - Cada módulo deve fazer uma coisa bem
+- **Falhe rápido e de forma evidente** - Melhor travar com um erro claro do que falhar silenciosamente
+- **Configuração antes de código** - Prefira tornar o comportamento configurável a codificar lógica complexa fixa
 
-### KISS in Practice
+### KISS na Prática
 
-- **Monitoring loop**: Simple goroutine per cluster, no complex scheduling
-- **Data storage**: Hybrid approach - RAM (5min fast access) + SQLite (24h persistence)
-- **Alert correlation**: Basic grouping by cluster/namespace/HPA - no ML/AI complexity
-- **TUI**: Bubble Tea standard patterns - no custom frameworks
-- **Error handling**: Clear error messages, graceful degradation - no silent failures
-- **Persistence**: Auto-save to SQLite (async), auto-load on startup, auto-cleanup old data
+- **Loop de monitoramento**: Goroutine simples por cluster, sem agendamento complexo
+- **Armazenamento de dados**: Abordagem híbrida - RAM (acesso rápido de 5min) + SQLite (persistência de 24h)
+- **Correlação de alertas**: Agrupamento básico por cluster/namespace/HPA - sem complexidade de ML/IA
+- **TUI**: Padrões padrão do Bubble Tea - nada de frameworks personalizados
+- **Tratamento de erros**: Mensagens claras, degradação graciosa - sem falhas silenciosas
+- **Persistência**: Auto-save para SQLite (assíncrono), auto-load no startup, auto-cleanup de dados antigos
 
-If a solution feels complex, it probably is. Step back and find the simpler approach.
+Se uma solução parecer complexa, provavelmente é. Dê um passo atrás e encontre a abordagem mais simples.
 
-## Architecture
+## Arquitetura
 
-### Three-Layer Data Collection
+### Coleta de Dados em Três Camadas
 
-1. **Kubernetes API** (client-go): HPA configuration, replica counts, deployment info, events
-2. **Prometheus API**: Metrics (CPU/Memory/Network) and temporal analysis with PromQL
-3. **Alertmanager API**: Existing alert aggregation and silence management
+1. **Kubernetes API** (client-go): Configuração do HPA, contagem de réplicas, informações de deployment, eventos
+2. **Prometheus API**: Métricas (CPU/Memória/Rede) e análise temporal com PromQL
+3. **Alertmanager API**: Agregação de alertas existentes e gerenciamento de silêncios
 
-### Hybrid Approach
+### Abordagem Híbrida
 
-- **K8s API**: Configuration and state data (min/max replicas, current/desired replicas)
-- **Prometheus**: Primary metrics source with native historical data and rich metrics (CPU, Memory, Request Rate, Error Rate, P95 Latency)
-- **Alertmanager**: Primary alert source from existing Prometheus rules (70% of alerts)
-- **Watchdog Analyzer**: Complementary anomaly detection for patterns not covered by simple PromQL (30% of alerts)
+- **API do K8s**: Dados de configuração e estado (réplicas mín./máx., réplicas atuais/desejadas)
+- **Prometheus**: Fonte principal de métricas com histórico nativo e métricas ricas (CPU, Memória, taxa de requisições, taxa de erros, latência P95)
+- **Alertmanager**: Fonte principal de alertas vindos de regras Prometheus existentes (70% dos alertas)
+- **Watchdog Analyzer**: Detecção de anomalias complementar para padrões não cobertos pelas consultas PromQL simples (30% dos alertas)
 
-## Core Data Model
+## Modelo de Dados Central
 
 ### HPASnapshot
-Extended snapshot capturing both K8s state and Prometheus metrics:
-- K8s data: HPA config, replicas, resource requests/limits, status
-- Prometheus data: Current metrics, 5-minute history, extended metrics (request rate, error rate, latency)
-- Data source indicator: Prometheus (preferred), Metrics-Server (fallback), or Hybrid
+Snapshot estendido que captura tanto o estado do K8s quanto métricas do Prometheus:
+- Dados do K8s: Configuração do HPA, réplicas, requests/limits de recursos, status
+- Dados do Prometheus: Métricas atuais, histórico de 5 minutos, métricas estendidas (taxa de requisições, taxa de erros, latência)
+- Indicador de fonte de dados: Prometheus (preferencial), Metrics-Server (fallback) ou híbrido
 
 ### UnifiedAlert
-Combines alerts from both Alertmanager and Watchdog's own detection:
-- Source tracking (Alertmanager vs Watchdog)
-- Enrichment with HPASnapshot and AlertContext
-- Correlation with related alerts
-- Silence and acknowledgment support
+Combina alertas do Alertmanager e da detecção própria do Watchdog:
+- Rastreamento da origem (Alertmanager vs Watchdog)
+- Enriquecimento com HPASnapshot e AlertContext
+- Correlação com alertas relacionados
+- Suporte a silêncio e confirmação
 
-## Project Structure
+## Estrutura do Projeto
 
 ```
 hpa-watchdog/
 ├── cmd/
-│   └── main.go                    # Entry point
+│   └── main.go                    # Ponto de entrada
 ├── internal/
-│   ├── analyzer/                  # ✅ IMPLEMENTED
-│   │   ├── detector.go            # Anomaly detector with 10 types (Phase 1 + Phase 2)
-│   │   ├── detector_test.go       # 12 unit tests (Phase 1)
-│   │   ├── sudden_changes_test.go # 8 unit tests (Phase 2)
-│   │   └── README.md              # Documentation
-│   ├── storage/                   # ✅ IMPLEMENTED
-│   │   ├── cache.go               # Time-series cache with persistence integration
-│   │   ├── cache_test.go          # 12 cache tests
-│   │   ├── persistence.go         # SQLite persistence layer
-│   │   ├── persistence_test.go    # 8 persistence tests
-│   │   └── README.md              # Documentation
-│   ├── models/                    # ✅ IMPLEMENTED
+│   ├── analyzer/                  # ✅ IMPLEMENTADO
+│   │   ├── detector.go            # Detector de anomalias com 10 tipos (Fase 1 + Fase 2)
+│   │   ├── detector_test.go       # 12 testes unitários (Fase 1)
+│   │   ├── sudden_changes_test.go # 8 testes unitários (Fase 2)
+│   │   └── README.md              # Documentação
+│   ├── storage/                   # ✅ IMPLEMENTADO
+│   │   ├── cache.go               # Cache de séries temporais com integração de persistência
+│   │   ├── cache_test.go          # 12 testes do cache
+│   │   ├── persistence.go         # Camada de persistência com SQLite
+│   │   ├── persistence_test.go    # 8 testes de persistência
+│   │   └── README.md              # Documentação
+│   ├── models/                    # ✅ IMPLEMENTADO
 │   │   └── types.go               # HPASnapshot, TimeSeriesData, HPAStats, GetPrevious()
 │   ├── monitor/                   # 🔄 TODO
-│   │   ├── collector.go           # Unified collector (K8s + Prometheus + Alertmanager)
-│   │   ├── analyzer.go            # Anomaly detection
-│   │   └── alerter.go             # Alert system
+│   │   ├── collector.go           # Coletor unificado (K8s + Prometheus + Alertmanager)
+│   │   ├── analyzer.go            # Detecção de anomalias
+│   │   └── alerter.go             # Sistema de alertas
 │   ├── prometheus/                # 🔄 TODO
-│   │   ├── client.go              # Prometheus API wrapper
-│   │   ├── queries.go             # Predefined PromQL queries
-│   │   └── discovery.go           # Auto-discovery of endpoints
+│   │   ├── client.go              # Wrapper da API do Prometheus
+│   │   ├── queries.go             # Consultas PromQL predefinidas
+│   │   └── discovery.go           # Descoberta automática de endpoints
 │   ├── alertmanager/              # 🔄 TODO
-│   │   └── client.go              # Alertmanager API wrapper
+│   │   └── client.go              # Wrapper da API do Alertmanager
 │   ├── config/                    # 🔄 TODO
-│   │   ├── loader.go              # Config loading
-│   │   ├── thresholds.go          # Threshold management
-│   │   └── clusters.go            # Cluster discovery
+│   │   ├── loader.go              # Carregamento de configuração
+│   │   ├── thresholds.go          # Gerenciamento de thresholds
+│   │   └── clusters.go            # Descoberta de clusters
 │   └── tui/                       # 🔄 TODO
-│       ├── app.go                 # Main Bubble Tea app
-│       ├── views.go               # View rendering
-│       ├── handlers.go            # Event handlers
-│       ├── components/            # UI components (dashboard, alerts, charts, config)
-│       └── styles.go              # Lipgloss styles
+│       ├── app.go                 # Aplicativo principal Bubble Tea
+│       ├── views.go               # Renderização das views
+│       ├── handlers.go            # Manipuladores de eventos
+│       ├── components/            # Componentes de UI (dashboard, alertas, gráficos, config)
+│       └── styles.go              # Estilos do Lipgloss
 ├── configs/
-│   └── watchdog.yaml              # Default configuration
-└── HPA_WATCHDOG_*.md              # Specification documents
+│   └── watchdog.yaml              # Configuração padrão
+└── HPA_WATCHDOG_*.md              # Documentos de especificação
 ```
 
-## Development Commands
+## Comandos de Desenvolvimento
 
-### Building
+### Build
 ```bash
-# Build the binary
+# Compilar o binário
 go build -o build/hpa-watchdog ./cmd/main.go
 
-# Build with version info
+# Compilar com informação de versão
 go build -ldflags "-X main.Version=v1.0.0" -o build/hpa-watchdog ./cmd/main.go
 ```
 
-### Running
+### Execução
 ```bash
-# Run with default config
+# Executar com a configuração padrão
 ./build/hpa-watchdog
 
-# Run with custom config
-./build/hpa-watchdog --config /path/to/watchdog.yaml
+# Executar com uma configuração personalizada
+./build/hpa-watchdog --config /caminho/para/watchdog.yaml
 
-# Debug mode (verbose logging)
+# Modo debug (logs verbosos)
 ./build/hpa-watchdog --debug
 ```
 
-### Testing
+### Testes
 ```bash
-# Run all tests
+# Executar todos os testes
 go test ./...
 
-# Test specific package
+# Testar um pacote específico
 go test ./internal/monitor/...
 
-# Test with coverage
+# Testar com cobertura
 go test -cover ./...
 
-# Integration tests (requires K8s cluster access)
+# Testes de integração (exige acesso a um cluster K8s)
 go test ./tests/integration/...
 ```
 
-### Configuration Validation
+### Validação da Configuração
 ```bash
-# Validate config file
+# Validar arquivo de configuração
 ./build/hpa-watchdog validate --config configs/watchdog.yaml
 ```
 
-## Key Dependencies
+## Dependências Principais
 
-- **k8s.io/client-go@v0.31.4**: Kubernetes API client
-- **github.com/charmbracelet/bubbletea@v0.24.2**: TUI framework
-- **github.com/charmbracelet/lipgloss@v1.1.0**: Terminal styling
-- **github.com/prometheus/client_golang**: Prometheus API client
-- **github.com/spf13/viper**: Configuration management
-- **github.com/guptarohit/asciigraph**: ASCII charts for metrics
-- **github.com/rs/zerolog**: Structured logging
-- **github.com/mattn/go-sqlite3**: SQLite persistence (required for production)
+- **k8s.io/client-go@v0.31.4**: Cliente da API do Kubernetes
+- **github.com/charmbracelet/bubbletea@v0.24.2**: Framework de TUI
+- **github.com/charmbracelet/lipgloss@v1.1.0**: Estilização de terminal
+- **github.com/prometheus/client_golang**: Cliente da API do Prometheus
+- **github.com/spf13/viper**: Gerenciamento de configuração
+- **github.com/guptarohit/asciigraph**: Gráficos ASCII para métricas
+- **github.com/rs/zerolog**: Logging estruturado
+- **github.com/mattn/go-sqlite3**: Persistência em SQLite (necessária em produção)
 
-## Important Prometheus Queries
+## Consultas Importantes de Prometheus
 
-### CPU Usage (HPA Target)
+### Uso de CPU (alvo do HPA)
 ```promql
 sum(rate(container_cpu_usage_seconds_total{namespace="{namespace}",pod=~"{pod_selector}"}[1m])) /
 sum(kube_pod_container_resource_requests{namespace="{namespace}",pod=~"{pod_selector}",resource="cpu"}) * 100
 ```
 
-### Replica History
+### Histórico de Réplicas
 ```promql
 kube_horizontalpodautoscaler_status_current_replicas{namespace="{namespace}",horizontalpodautoscaler="{name}"}[5m]
 ```
 
-### Request Rate
+### Taxa de Requisições
 ```promql
 sum(rate(http_requests_total{namespace="{namespace}",service="{service}"}[1m]))
 ```
 
-### Error Rate
+### Taxa de Erros
 ```promql
 sum(rate(http_requests_total{namespace="{namespace}",service="{service}",status=~"5.."}[1m])) /
 sum(rate(http_requests_total{namespace="{namespace}",service="{service}"}[1m])) * 100
 ```
 
-## Configuration System
+## Sistema de Configuração
 
-### Config File: `configs/watchdog.yaml`
+### Arquivo de Configuração: `configs/watchdog.yaml`
 
-Key sections:
-- **monitoring**: Scan intervals, Prometheus/Alertmanager settings, auto-discovery
-- **clusters**: Cluster discovery and filtering
-- **storage**: Optional persistence with SQLite
-- **alerts**: Source priority, deduplication, correlation
-- **thresholds**: CPU/Memory limits, replica deltas, extended metrics
-- **ui**: Refresh rate, theme, sounds
+Seções principais:
+- **monitoring**: Intervalos de varredura, definições de Prometheus/Alertmanager, descoberta automática
+- **clusters**: Descoberta e filtragem de clusters
+- **storage**: Persistência opcional com SQLite
+- **alerts**: Prioridade da fonte, deduplicação, correlação
+- **thresholds**: Limites de CPU/Memória, deltas de réplicas, métricas estendidas
+- **ui**: Taxa de atualização, tema, sons
 
-### Auto-Discovery
+### Descoberta Automática
 
-- **Clusters**: Discovers from kubeconfig or `clusters-config.json`
-- **Prometheus**: Tries common service patterns in monitoring namespace
-- **Alertmanager**: Tries common service patterns in monitoring namespace
-- **Fallback**: Uses Kubernetes Metrics-Server if Prometheus unavailable
+- **Clusters**: Descobre a partir do kubeconfig ou `clusters-config.json`
+- **Prometheus**: Testa padrões comuns de serviço no namespace de monitoramento
+- **Alertmanager**: Testa padrões comuns de serviço no namespace de monitoramento
+- **Fallback**: Usa o Metrics-Server do Kubernetes se o Prometheus não estiver disponível
 
-## Data Persistence Strategy
+## Estratégia de Persistência de Dados
 
-### Hybrid Storage: RAM + SQLite ✅
+### Armazenamento Híbrido: RAM + SQLite ✅
 
-**Why Hybrid?**
-- **RAM (5min)**: Ultra-fast access for comparisons and anomaly detection
-- **SQLite (24h)**: Persistent storage survives restarts, enables historical analysis
+**Por que híbrido?**
+- **RAM (5min)**: Acesso ultrarrápido para comparações e detecção de anomalias
+- **SQLite (24h)**: Persistência que sobrevive a reinicializações e permite análise histórica
 
-### Implementation (`internal/storage/`)
+### Implementação (`internal/storage/`)
 
-#### In-Memory Cache (TimeSeriesCache)
+#### Cache em Memória (TimeSeriesCache)
 ```go
 cache := storage.NewTimeSeriesCache(&CacheConfig{
-    MaxDuration:  5 * time.Minute,  // Sliding window
-    ScanInterval: 30 * time.Second,  // ~10 snapshots per HPA
+    MaxDuration:  5 * time.Minute,  // Janela deslizante
+    ScanInterval: 30 * time.Second, // ~10 snapshots por HPA
 })
 ```
 
-- **Fast access**: O(1) lookup by cluster/namespace/name
-- **Auto-cleanup**: Removes snapshots older than 5 minutes
-- **Statistics**: Pre-calculated CPU/Memory trends, replica changes
-- **Thread-safe**: sync.RWMutex for concurrent access
+- **Acesso rápido**: Busca O(1) por cluster/namespace/nome
+- **Limpeza automática**: Remove snapshots com mais de 5 minutos
+- **Estatísticas**: Tendências pré-calculadas de CPU/Memória, variações de réplicas
+- **Thread-safe**: sync.RWMutex para acesso concorrente
 
-#### SQLite Persistence
+#### Persistência em SQLite
 ```go
 persist, _ := storage.NewPersistence(&PersistenceConfig{
     Enabled:     true,
@@ -249,151 +249,151 @@ persist, _ := storage.NewPersistence(&PersistenceConfig{
     AutoCleanup: true,
 })
 
-cache.SetPersistence(persist)  // Auto-save enabled!
+cache.SetPersistence(persist)  // Auto-save habilitado!
 ```
 
-**Features**:
-- **Auto-save**: Every snapshot added to cache is saved to SQLite (async)
-- **Auto-load**: On startup, loads last 5 minutes from SQLite to RAM
-- **Auto-cleanup**: Removes snapshots older than 24h
-- **Batch operations**: Efficient bulk inserts/queries
-- **Schema**: Simple table with JSON serialization of snapshots
+**Recursos**:
+- **Auto-save**: Cada snapshot adicionado ao cache é salvo em SQLite (assíncrono)
+- **Auto-load**: No startup, carrega os últimos 5 minutos do SQLite para a RAM
+- **Auto-cleanup**: Remove snapshots com mais de 24h
+- **Operações em lote**: Inserts/consultas em massa eficientes
+- **Schema**: Tabela simples com serialização JSON dos snapshots
 
-**Database Schema**:
+**Schema do Banco**:
 ```sql
 CREATE TABLE snapshots (
     cluster TEXT,
     namespace TEXT,
     hpa_name TEXT,
     timestamp DATETIME,
-    data TEXT  -- Full HPASnapshot as JSON
+    data TEXT  -- HPASnapshot completo como JSON
 )
 ```
 
-**Storage Estimates** (24 clusters, 2400 HPAs):
-- Memory: ~12 MB (5min window)
-- SQLite: ~3.3 GB (24h retention, auto-cleanup)
-- Scan time: <5s per cluster (2880 scans/day)
+**Estimativas de armazenamento** (24 clusters, 2400 HPAs):
+- Memória: ~12 MB (janela de 5min)
+- SQLite: ~3,3 GB (retenção de 24h, auto-cleanup)
+- Tempo de varredura: <5s por cluster (2880 varreduras/dia)
 
-### Persistence Benefits for Multi-Cluster
+### Benefícios da Persistência para Multi-Cluster
 
-1. **Survives Restarts**: No data loss when HPA Watchdog restarts
-2. **Immediate Detection**: Detects sudden changes from first scan (loads previous state)
-3. **Historical Analysis**: 24h of data for trend analysis and debugging
-4. **Low Memory**: Only 5min in RAM, rest in SQLite
-5. **Performance**: Async saves don't block monitoring loop
+1. **Sobrevive a reinicializações**: Sem perda de dados quando o HPA Watchdog reinicia
+2. **Detecção imediata**: Detecta mudanças súbitas desde o primeiro scan (carrega estado anterior)
+3. **Análise histórica**: 24h de dados para análise de tendências e depuração
+4. **Baixo uso de memória**: Apenas 5min em RAM, restante no SQLite
+5. **Performance**: Saves assíncronos não bloqueiam o loop de monitoramento
 
-## Monitoring Loop
+## Loop de Monitoramento
 
-Each cluster runs an independent goroutine:
-1. List namespaces (skip system namespaces)
-2. For each namespace, list HPAs
-3. For each HPA:
-   - Get config from K8s API
-   - Query metrics from Prometheus (current + 5min history)
-   - Create HPASnapshot
-   - Store in time-series cache → **Auto-saved to SQLite**
-4. Sync alerts from Alertmanager
-5. Analyze snapshots for anomalies (both persistent and sudden changes)
-6. Send unified alerts to TUI via channels
-7. Sleep until next scan interval
+Cada cluster executa uma goroutine independente:
+1. Lista namespaces (pula namespaces de sistema)
+2. Para cada namespace, lista HPAs
+3. Para cada HPA:
+   - Obtém a configuração via API do K8s
+   - Consulta métricas no Prometheus (atual + histórico de 5min)
+   - Cria o HPASnapshot
+   - Armazena no cache de séries temporais → **Auto-salvo no SQLite**
+4. Sincroniza alertas do Alertmanager
+5. Analisa snapshots em busca de anomalias (persistentes e súbitas)
+6. Envia alertas unificados para a TUI via canais
+7. Dorme até o próximo intervalo de varredura
 
-**On Startup**: Load last 5 minutes from SQLite → Ready to detect changes immediately!
+**Na inicialização**: Carrega os últimos 5 minutos do SQLite → Pronto para detectar mudanças imediatamente!
 
-## Anomaly Detection
+## Detecção de Anomalias
 
-### Alertmanager Integration (Primary)
-- Syncs existing alerts from Alertmanager API
-- Filters HPA-related alerts
-- Enriches with context (metrics, history, correlation)
-- Provides centralized multi-cluster view
-- Allows silence management directly from TUI
+### Integração com Alertmanager (Primária)
+- Sincroniza alertas existentes via API do Alertmanager
+- Filtra alertas relacionados a HPA
+- Enriquece com contexto (métricas, histórico, correlação)
+- Fornece visão centralizada multi-cluster
+- Permite gerenciar silêncios diretamente pela TUI
 
-### Watchdog Analyzer - Phase 1: Persistent State Anomalies ✅
-The analyzer package (`internal/analyzer/`) implements 5 anomaly detectors for persistent problematic states:
+### Watchdog Analyzer - Fase 1: Anomalias de Estado Persistente ✅
+O pacote analyzer (`internal/analyzer/`) implementa 5 detectores para estados problemáticos persistentes:
 
-| # | Anomaly | Condition | Duration | Status |
-|---|---------|-----------|----------|--------|
-| 1 | **Oscillation** | >5 replica changes | 5min | ✅ Implemented |
-| 2 | **Maxed Out** | replicas=max + CPU>target+20% | 2min | ✅ Implemented |
-| 3 | **OOMKilled** | Pod killed by OOM | - | 🔴 Placeholder |
-| 4 | **Pods Not Ready** | Pods not ready | 3min | ✅ Implemented |
-| 5 | **High Error Rate** | >5% errors 5xx (Prometheus) | 2min | ✅ Implemented |
+| # | Anomalia | Condição | Duração | Status |
+|---|----------|----------|---------|--------|
+| 1 | **Oscilação** | >5 alterações de réplica | 5min | ✅ Implementado |
+| 2 | **No Limite** | réplicas = máx + CPU > alvo +20% | 2min | ✅ Implementado |
+| 3 | **OOMKilled** | Pod finalizado por OOM | - | 🔴 Placeholder |
+| 4 | **Pods Não Prontos** | Pods não prontos | 3min | ✅ Implementado |
+| 5 | **Alta Taxa de Erros** | >5% de erros 5xx (Prometheus) | 2min | ✅ Implementado |
 
-**Testing**: 12/12 unit tests passing (see `internal/analyzer/detector_test.go`)
+**Testes**: 12/12 testes unitários aprovados (veja `internal/analyzer/detector_test.go`)
 
-### Watchdog Analyzer - Phase 2: Sudden Changes ✅
-Detects abrupt variations between consecutive scans (scan-to-scan comparison):
+### Watchdog Analyzer - Fase 2: Mudanças Súbitas ✅
+Detecta variações bruscas entre scans consecutivos (comparação scan a scan):
 
-| # | Anomaly | Condition | Threshold | Status |
-|---|---------|-----------|-----------|--------|
-| 6 | **CPU Spike** | CPU aumentou >50% em 1 scan | +50% | ✅ Implemented |
-| 7 | **Replica Spike** | Replicas aumentaram em 1 scan | +3 | ✅ Implemented |
-| 8 | **Error Spike** | Error rate aumentou em 1 scan | +5% | ✅ Implemented |
-| 9 | **Latency Spike** | Latency aumentou >100% em 1 scan | +100% | ✅ Implemented |
-| 10 | **CPU Drop** | CPU caiu >50% em 1 scan | -50% | ✅ Implemented |
+| # | Anomalia | Condição | Limite | Status |
+|---|----------|----------|--------|--------|
+| 6 | **Pico de CPU** | CPU aumentou >50% em 1 scan | +50% | ✅ Implementado |
+| 7 | **Pico de Réplicas** | Réplicas aumentaram em 1 scan | +3 | ✅ Implementado |
+| 8 | **Pico de Erros** | Taxa de erros aumentou em 1 scan | +5% | ✅ Implementado |
+| 9 | **Pico de Latência** | Latência aumentou >100% em 1 scan | +100% | ✅ Implementado |
+| 10 | **Queda de CPU** | CPU caiu >50% em 1 scan | -50% | ✅ Implementado |
 
-**Key Features**:
-- **Scan-to-scan comparison**: Compares latest snapshot with previous snapshot (no Prometheus queries needed)
-- **Fast detection**: Identifies sudden changes immediately (within one scan interval)
-- **Local cache**: Uses `GetPrevious()` from TimeSeriesData for instant comparison
-- **Configurable thresholds**: All spike thresholds are customizable
-- **Action suggestions**: Each anomaly includes remediation actions
+**Principais características**:
+- **Comparação scan a scan**: Compara o snapshot mais recente com o anterior (sem novas consultas ao Prometheus)
+- **Detecção rápida**: Identifica mudanças súbitas imediatamente (dentro de um intervalo de varredura)
+- **Cache local**: Usa `GetPrevious()` de TimeSeriesData para comparação instantânea
+- **Thresholds configuráveis**: Todos os limites de picos são customizáveis
+- **Sugestões de ação**: Cada anomalia inclui ações de remediação
 
-**Testing**: 8/8 unit tests passing (see `internal/analyzer/sudden_changes_test.go`)
+**Testes**: 8/8 testes unitários aprovados (veja `internal/analyzer/sudden_changes_test.go`)
 
-### Combined Detection Strategy
-The analyzer runs both phases on every scan:
-1. **Phase 1** detects persistent problematic states (requires duration)
-2. **Phase 2** detects sudden variations (requires 2 snapshots)
+### Estratégia de Detecção Combinada
+O analyzer executa as duas fases em cada varredura:
+1. **Fase 1** detecta estados problemáticos persistentes (requer duração)
+2. **Fase 2** detecta variações súbitas (requer 2 snapshots)
 
-Total: **10 anomaly types** covering both gradual trends and abrupt changes.
+Total: **10 tipos de anomalia** cobrindo tanto tendências graduais quanto mudanças abruptas.
 
-## TUI Navigation
+## Navegação da TUI
 
-### Keyboard Controls
-- `Tab`: Switch views (Dashboard, Alerts, Clusters, Config)
-- `↑↓` or `j k`: Navigate lists
-- `Enter`: View details / Edit
-- `A`: Acknowledge alert
-- `Shift+A`: Acknowledge all alerts
-- `S`: Silence alert (creates Alertmanager silence)
-- `C`: Clear acknowledged alerts
-- `E`: Enrich alert with metrics context
-- `D`: View alert details
-- `H`: View snapshot history
-- `F5`: Force refresh
-- `Ctrl+C` or `Q`: Quit
-- `?`: Help
+### Controles de Teclado
+- `Tab`: Troca de views (Dashboard, Alertas, Clusters, Config)
+- `↑↓` ou `j k`: Navega em listas
+- `Enter`: Ver detalhes / Editar
+- `A`: Reconhecer alerta
+- `Shift+A`: Reconhecer todos os alertas
+- `S`: Silenciar alerta (cria silêncio no Alertmanager)
+- `C`: Limpar alertas reconhecidos
+- `E`: Enriquecer alerta com contexto de métricas
+- `D`: Ver detalhes do alerta
+- `H`: Ver histórico do snapshot
+- `F5`: Forçar refresh
+- `Ctrl+C` ou `Q`: Sair
+- `?`: Ajuda
 
-### Views
-1. **Dashboard**: Multi-cluster overview, alert summary, ASCII charts, quick stats
-2. **Alerts**: Detailed alert list with filtering and correlation
-3. **Cluster View**: Per-cluster breakdown by namespace
-4. **Config Modal**: Interactive threshold and setting configuration
+### Visões
+1. **Dashboard**: Visão geral multi-cluster, resumo de alertas, gráficos ASCII, estatísticas rápidas
+2. **Alertas**: Lista detalhada de alertas com filtragem e correlação
+3. **Cluster View**: Detalhamento por cluster e namespace
+4. **Config Modal**: Configuração interativa de thresholds e ajustes
 
-## Alert Correlation
+## Correlação de Alertas
 
-Watchdog automatically correlates related alerts:
-- Groups alerts by cluster/namespace/HPA
-- Identifies root cause vs symptoms
-- Provides combined analysis across multiple alert types
-- Suggests remediation actions
+O Watchdog correlaciona automaticamente alertas relacionados:
+- Agrupa alertas por cluster/namespace/HPA
+- Identifica causa raiz vs sintomas
+- Fornece análise combinada envolvendo múltiplos tipos de alerta
+- Sugere ações de remediação
 
-Example: CPU spike → maxed out replicas → high errors → high latency all correlated as single incident.
+Exemplo: Pico de CPU → réplicas no limite → alta taxa de erros → alta latência correlacionados como um único incidente.
 
-## Design Principles
+## Princípios de Design
 
-1. **Rune-safe**: Always use `[]rune` for Unicode text handling in TUI
-2. **Async operations**: Use Bubble Tea commands for async tasks (K8s/Prometheus queries)
-3. **Channels for updates**: Monitor goroutines send updates to TUI via channels
-4. **Fallback strategy**: Prometheus → Metrics-Server, graceful degradation
-5. **Minimal storage**: Leverage Prometheus TSDB instead of heavy local caching
-6. **Read-only**: No cluster modifications, safe monitoring operations
+1. **Segurança com runes**: Use sempre `[]rune` para lidar com texto Unicode na TUI
+2. **Operações assíncronas**: Use comandos Bubble Tea para tarefas assíncronas (consultas K8s/Prometheus)
+3. **Canais para atualizações**: Goroutines de monitoramento enviam updates para a TUI via canais
+4. **Estratégia de fallback**: Prometheus → Metrics-Server, com degradação graciosa
+5. **Armazenamento mínimo**: Aproveite o TSDB do Prometheus em vez de caches locais pesados
+6. **Somente leitura**: Sem modificações no cluster, operações de monitoramento seguras
 
-## Security & Permissions
+## Segurança e Permissões
 
-### Required K8s RBAC
+### RBAC necessário no K8s
 ```yaml
 - apiGroups: [""]
   resources: ["namespaces", "pods"]
@@ -409,110 +409,110 @@ Example: CPU spike → maxed out replicas → high errors → high latency all c
   verbs: ["get", "list"]
 ```
 
-**Note**: All operations are read-only. No write/modify permissions needed.
+**Observação**: Todas as operações são somente leitura. Nenhuma permissão de escrita/modificação é necessária.
 
-## Performance Targets
+## Metas de Desempenho
 
-- **Scan Time**: <5s per cluster (50 HPAs, 10 namespaces)
-- **Memory Usage**: <100 MB (5 clusters, 250 HPAs, 5min history)
-- **CPU Usage**: <5% idle
-- **Alertmanager Sync**: 30s interval
-- **TUI Refresh**: 500ms
+- **Tempo de varredura**: <5s por cluster (50 HPAs, 10 namespaces)
+- **Uso de memória**: <100 MB (5 clusters, 250 HPAs, histórico de 5min)
+- **Uso de CPU**: <5% em idle
+- **Sincronização com Alertmanager**: Intervalo de 30s
+- **Atualização da TUI**: 500ms
 
-## Roadmap Status
+## Status do Roadmap
 
-### Phase 1: Foundation ✅ (Completed)
-- ✅ Project setup and structure
-- ✅ Data models (HPASnapshot, TimeSeriesData, HPAStats)
-- ✅ In-memory time-series storage with statistics
-- ✅ Anomaly detector (5 critical anomalies)
-- ✅ Comprehensive unit tests (storage + analyzer)
-- ✅ Documentation (README for each package)
+### Fase 1: Fundação ✅ (Concluída)
+- ✅ Setup e estrutura do projeto
+- ✅ Modelos de dados (HPASnapshot, TimeSeriesData, HPAStats)
+- ✅ Armazenamento em memória com estatísticas
+- ✅ Detector de anomalias (5 anomalias críticas)
+- ✅ Testes unitários abrangentes (storage + analyzer)
+- ✅ Documentação (README para cada pacote)
 
-### Phase 2: Integration ✅ (Completed)
-- ✅ K8s client integration (`monitor/k8s_client.go`)
-- ✅ Prometheus client integration (`prometheus/client.go`)
-- ⚠️ Alertmanager client integration (TODO - not critical for MVP)
-- ✅ Unified collector (`monitor/collector.go`)
-- ✅ Monitoring loop implementation with channels
-- ✅ Config system with YAML support (`config/loader.go`)
-- ✅ All tests passing (analyzer, storage, monitor, prometheus)
+### Fase 2: Integração ✅ (Concluída)
+- ✅ Integração com cliente K8s (`monitor/k8s_client.go`)
+- ✅ Integração com cliente Prometheus (`prometheus/client.go`)
+- ⚠️ Integração com Alertmanager (TODO - não crítico para o MVP)
+- ✅ Coletor unificado (`monitor/collector.go`)
+- ✅ Implementação do loop de monitoramento com canais
+- ✅ Sistema de configuração com suporte YAML (`config/loader.go`)
+- ✅ Todos os testes aprovados (analyzer, storage, monitor, prometheus)
 
-### Phase 3: User Interface (Current)
-- 🔄 Basic TUI (Bubble Tea)
-- 🔄 Dashboard view (multi-cluster overview)
-- 🔄 Alerts view (with filtering)
-- 🔄 Cluster detail view
-- 🔄 ASCII charts for metrics
-- 🔄 Config modal
-- 🔄 Integration with collector channels
+### Fase 3: Interface do Usuário (Atual)
+- 🔄 TUI básica (Bubble Tea)
+- 🔄 Visão de dashboard (overview multi-cluster)
+- 🔄 Visão de alertas (com filtragem)
+- 🔄 Visão detalhada de cluster
+- 🔄 Gráficos ASCII para métricas
+- 🔄 Modal de configuração
+- 🔄 Integração com canais do coletor
 
-### Phase 4: Advanced Features
-- 🔄 Alert correlation engine
-- 🔄 Silence management via TUI
-- 🔄 Enhanced anomaly detection (Phase 2 anomalies)
-- 🔄 SQLite persistence (optional)
-- 🔄 Auto-discovery (clusters, Prometheus, Alertmanager)
+### Fase 4: Recursos Avançados
+- 🔄 Motor de correlação de alertas
+- 🔄 Gestão de silêncios via TUI
+- 🔄 Detecção de anomalias aprimorada (anomalias da Fase 2)
+- 🔄 Persistência SQLite (opcional)
+- 🔄 Descoberta automática (clusters, Prometheus, Alertmanager)
 
-### Phase 5: Production Ready
-- 🔄 Systemd service file
-- 🔄 Docker image
-- 🔄 Webhook notifications (Slack, Discord, Teams)
-- 🔄 Performance optimization
-- 🔄 Integration tests
-- 🔄 CI/CD pipeline
+### Fase 5: Pronto para Produção
+- 🔄 Arquivo de serviço systemd
+- 🔄 Imagem Docker
+- 🔄 Notificações via webhook (Slack, Discord, Teams)
+- 🔄 Otimização de performance
+- 🔄 Testes de integração
+- 🔄 Pipeline de CI/CD
 
-## Common Patterns
+## Padrões Comuns
 
-### Adding a New Anomaly Type
-1. Add anomaly type constant in `internal/analyzer/detector.go` (`AnomalyType`)
-2. Add threshold config in `DetectorConfig` struct
-3. Implement detection method (e.g., `detectNewAnomaly()`)
-4. Call detection method in `Detect()` loop
-5. Add unit tests in `internal/analyzer/detector_test.go`
-6. Update README with new anomaly details
+### Adicionando um Novo Tipo de Anomalia
+1. Adicione a constante de tipo de anomalia em `internal/analyzer/detector.go` (`AnomalyType`)
+2. Adicione a configuração de threshold na struct `DetectorConfig`
+3. Implemente o método de detecção (ex.: `detectNewAnomaly()`)
+4. Chame o método de detecção no loop `Detect()`
+5. Adicione testes unitários em `internal/analyzer/detector_test.go`
+6. Atualize o README com os detalhes da nova anomalia
 
-### Adding a New Prometheus Query
-1. Define query template in `internal/prometheus/queries.go`
-2. Add parsing logic for result format
-3. Integrate into collector in `internal/monitor/collector.go`
-4. Update `HPASnapshot` model if new field needed
+### Adicionando uma Nova Consulta Prometheus
+1. Defina o template da consulta em `internal/prometheus/queries.go`
+2. Adicione a lógica de parsing para o formato do resultado
+3. Integre ao coletor em `internal/monitor/collector.go`
+4. Atualize o modelo `HPASnapshot` se precisar de um novo campo
 
-### Extending TUI Views
-1. Create component in `internal/tui/components/`
-2. Implement Bubble Tea `Model`, `Update`, and `View` methods
-3. Wire into main app in `internal/tui/app.go`
-4. Add keyboard handlers in `internal/tui/handlers.go`
-5. Define styles in `internal/tui/styles.go`
+### Expandindo Views da TUI
+1. Crie o componente em `internal/tui/components/`
+2. Implemente os métodos `Model`, `Update` e `View` do Bubble Tea
+3. Integre no app principal em `internal/tui/app.go`
+4. Adicione handlers de teclado em `internal/tui/handlers.go`
+5. Defina estilos em `internal/tui/styles.go`
 
-## Integration with k8s-hpa-manager
+## Integração com k8s-hpa-manager
 
-While HPA Watchdog can share utility code with the k8s-hpa-manager project (cluster discovery, K8s client wrappers), it is **completely autonomous**:
-- Separate binary: `hpa-watchdog`
-- Separate config directory: `~/.hpa-watchdog/`
-- Independent operation (does not require k8s-hpa-manager running)
-- Can run as background daemon or interactive TUI
+Embora o HPA Watchdog possa compartilhar código utilitário com o projeto k8s-hpa-manager (descoberta de clusters, wrappers do cliente K8s), ele é **completamente autônomo**:
+- Binário separado: `hpa-watchdog`
+- Diretório de configuração separado: `~/.hpa-watchdog/`
+- Operação independente (não exige que o k8s-hpa-manager esteja rodando)
+- Pode rodar como daemon em background ou TUI interativa
 
-## Troubleshooting
+## Solução de Problemas
 
-### Prometheus Connection Issues
-- Verify endpoint: `kubectl port-forward -n monitoring svc/prometheus 9090:9090`
-- Check auto-discovery patterns in config
-- Enable fallback to metrics-server: `prometheus.fallback_to_metrics_server: true`
+### Problemas de Conexão com o Prometheus
+- Verifique o endpoint: `kubectl port-forward -n monitoring svc/prometheus 9090:9090`
+- Cheque os padrões de descoberta automática na configuração
+- Habilite o fallback para metrics-server: `prometheus.fallback_to_metrics_server: true`
 
-### Missing Metrics
-- Ensure Prometheus is scraping kube-state-metrics
-- Check metrics-server is installed: `kubectl top pods`
-- Verify HPA target metrics are exposed
+### Métricas Ausentes
+- Garanta que o Prometheus está coletando kube-state-metrics
+- Verifique se o metrics-server está instalado: `kubectl top pods`
+- Confirme que as métricas alvo do HPA estão expostas
 
-### High Memory Usage
-- Reduce `history_retention_minutes` (default: 5)
-- Limit `max_active_alerts` (default: 100)
-- Disable persistence if not needed
+### Alto Uso de Memória
+- Reduza `history_retention_minutes` (padrão: 5)
+- Limite `max_active_alerts` (padrão: 100)
+- Desabilite a persistência se não for necessária
 
-### Alertmanager Sync Issues
-- Verify Alertmanager endpoint accessibility
-- Check alert label filters: `filters.only_hpa_related: true`
-- Increase sync interval if rate-limiting occurs
-- "As messagens do commit devem ser sempre em pt-br"
+### Problemas de Sincronização com o Alertmanager
+- Verifique a acessibilidade do endpoint do Alertmanager
+- Cheque os filtros de labels dos alertas: `filters.only_hpa_related: true`
+- Aumente o intervalo de sync se houver rate-limiting
+- "As mensagens de commit devem ser sempre em pt-br"
 - "O claude.md deve ser sempre em pt-br"

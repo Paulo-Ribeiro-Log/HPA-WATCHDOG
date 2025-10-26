@@ -51,8 +51,9 @@ type Model struct {
 	lastUpdate    time.Time
 	autoRefresh   bool
 	refreshTicker *time.Ticker
-	scanRunning   bool // Indica se scan está em execução
-	scanPaused    bool // Indica se scan está pausado
+	scanRunning   bool      // Indica se scan está em execução
+	scanPaused    bool      // Indica se scan está pausado
+	scanStartTime time.Time // Momento em que o scan foi iniciado
 
 	// Canais de dados (recebe atualizações do monitor)
 	snapshotChan chan *models.HPASnapshot
@@ -163,12 +164,28 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "tab":
-		m.currentView = (m.currentView + 1) % 5 // 5 views agora (Setup incluído)
+		// Navega entre as views principais (exceto Setup)
+		if m.currentView == ViewDetails {
+			m.currentView = ViewDashboard
+		} else if m.currentView >= ViewDashboard && m.currentView < ViewDetails {
+			m.currentView = m.currentView + 1
+		}
 		m.cursorPos = 0
 		return m, nil
 
 	case "shift+tab":
-		m.currentView = (m.currentView + 4) % 5 // -1 com wrap
+		// Navega para trás entre as views principais (exceto Setup)
+		if m.currentView == ViewDashboard {
+			m.currentView = ViewDetails
+		} else if m.currentView > ViewDashboard && m.currentView <= ViewDetails {
+			m.currentView = m.currentView - 1
+		}
+		m.cursorPos = 0
+		return m, nil
+
+	case "h", "home":
+		// Volta para a primeira view (Dashboard)
+		m.currentView = ViewDashboard
 		m.cursorPos = 0
 		return m, nil
 
@@ -381,6 +398,66 @@ func (m *Model) SetScanRunning(running bool) {
 // SetScanPaused define estado de pausa
 func (m *Model) SetScanPaused(paused bool) {
 	m.scanPaused = paused
+}
+
+// SetScanStartTime define o tempo de início do scan
+func (m *Model) SetScanStartTime(startTime time.Time) {
+	m.scanStartTime = startTime
+}
+
+// GetTimeRemaining calcula tempo restante do scan
+func (m Model) GetTimeRemaining() time.Duration {
+	if m.setupState == nil || m.setupState.config == nil {
+		return 0
+	}
+
+	// Se duração é 0 (infinito), retorna 0
+	if m.setupState.config.Duration == 0 {
+		return 0
+	}
+
+	// Se scan não está rodando, retorna duração total
+	if !m.scanRunning || m.scanStartTime.IsZero() {
+		return m.setupState.config.Duration
+	}
+
+	// Calcula tempo decorrido
+	elapsed := time.Since(m.scanStartTime)
+
+	// Calcula tempo restante
+	remaining := m.setupState.config.Duration - elapsed
+	if remaining < 0 {
+		return 0
+	}
+
+	return remaining
+}
+
+// GetScanProgress retorna progresso do scan em porcentagem (0-100)
+func (m Model) GetScanProgress() float64 {
+	if m.setupState == nil || m.setupState.config == nil {
+		return 0
+	}
+
+	// Se duração é 0 (infinito), retorna 0
+	if m.setupState.config.Duration == 0 {
+		return 0
+	}
+
+	// Se scan não está rodando, retorna 0
+	if !m.scanRunning || m.scanStartTime.IsZero() {
+		return 0
+	}
+
+	// Calcula progresso
+	elapsed := time.Since(m.scanStartTime)
+	progress := (float64(elapsed) / float64(m.setupState.config.Duration)) * 100
+
+	if progress > 100 {
+		return 100
+	}
+
+	return progress
 }
 
 // Messages para Bubble Tea
