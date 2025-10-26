@@ -69,11 +69,12 @@ type Model struct {
 // ClusterInfo informações resumidas de um cluster
 type ClusterInfo struct {
 	Name           string
-	TotalHPAs      int
+	TotalHPAs      int                 // Total de HPAs únicos descobertos
 	TotalAnomalies int
-	TotalScans     int       // Quantidade de scans executados
-	Status         string    // "Online", "Offline", "Error"
-	LastScan       time.Time
+	TotalScans     int                 // Quantidade de ciclos de scan completos
+	Status         string              // "Online", "Offline", "Error"
+	LastScan       time.Time           // Último snapshot recebido
+	hpasDiscovered map[string]struct{} // Conjunto de HPAs únicos descobertos
 }
 
 // New cria nova instância do model
@@ -290,14 +291,21 @@ func (m *Model) handleSnapshot(snapshot *models.HPASnapshot) {
 	cluster, exists := m.clusters[snapshot.Cluster]
 	if !exists {
 		cluster = &ClusterInfo{
-			Name:   snapshot.Cluster,
-			Status: "Online",
+			Name:           snapshot.Cluster,
+			Status:         "Online",
+			hpasDiscovered: make(map[string]struct{}),
 		}
 		m.clusters[snapshot.Cluster] = cluster
 	}
 
-	cluster.TotalHPAs++
-	cluster.TotalScans++
+	// Rastreia HPAs únicos descobertos
+	hpaKey := snapshot.Namespace + "/" + snapshot.Name
+	cluster.hpasDiscovered[hpaKey] = struct{}{}
+	cluster.TotalHPAs = len(cluster.hpasDiscovered)
+
+	// TotalScans será incrementado apenas quando um ciclo completo terminar
+	// (removido incremento incorreto aqui)
+
 	cluster.LastScan = time.Now()
 }
 
