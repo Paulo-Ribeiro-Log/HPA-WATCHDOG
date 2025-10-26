@@ -62,7 +62,7 @@ func (m Model) renderClusterList(clusters []*ClusterInfo) string {
 		}
 
 		status := ClusterStatusBadge(cluster.Status)
-		name := cluster.Name
+		name := truncateString(cluster.Name, 28) // Trunca nome longo
 		hpas := fmt.Sprintf("%d", cluster.TotalHPAs)
 		anomalies := ""
 		if cluster.TotalAnomalies > 0 {
@@ -133,4 +133,13 @@ func (m Model) renderClusterList(clusters []*ClusterInfo) string {
 	return BoxStyle.Copy().Width(m.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, lines...),
 	)
+}
+
+// truncateString trunca string se exceder maxLen, adicionando "..."
+func truncateString(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-3]) + "..."
 }
