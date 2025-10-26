@@ -55,9 +55,9 @@ func main() {
 			return
 		}
 
-		// Atualiza estado do model
-		model.SetScanRunning(true)
-		model.SetScanStartTime(time.Now()) // Define tempo de início
+		// Atualiza estado do model via canal
+		startTime := time.Now()
+		model.UpdateScanStatus(true, false, startTime)
 
 		// Aguarda comandos de pausa/stop
 		for {
@@ -65,16 +65,16 @@ func main() {
 			case <-model.GetPauseChan():
 				if scanEngine.IsPaused() {
 					scanEngine.Resume()
-					model.SetScanPaused(false)
+					model.UpdateScanStatus(true, false, startTime)
 				} else {
 					scanEngine.Pause()
-					model.SetScanPaused(true)
+					model.UpdateScanStatus(true, true, startTime)
 				}
 
 			case <-model.GetStopChan():
 				log.Info().Msg("Parando scan engine")
 				scanEngine.Stop()
-				model.SetScanRunning(false)
+				model.UpdateScanStatus(false, false, time.Time{})
 				return
 			}
 		}

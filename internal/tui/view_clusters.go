@@ -76,7 +76,7 @@ func (m Model) renderClusterList(clusters []*ClusterInfo) string {
 			lastScan = cluster.LastScan.Format("15:04:05")
 		}
 
-		// Tempo restante
+		// Tempo restante (mesmo para todos os clusters)
 		timeRemaining := "-"
 		if m.scanRunning {
 			remaining := m.GetTimeRemaining()
@@ -97,6 +97,24 @@ func (m Model) renderClusterList(clusters []*ClusterInfo) string {
 				timeRemaining = "∞ Infinito"
 			} else {
 				timeRemaining = "Concluído"
+			}
+		} else if m.setupState != nil && m.setupState.config != nil {
+			// Scan parado - mostra duração configurada
+			if m.setupState.config.Duration == 0 {
+				timeRemaining = "∞ Infinito"
+			} else {
+				duration := m.setupState.config.Duration
+				hours := int(duration.Hours())
+				minutes := int(duration.Minutes()) % 60
+				seconds := int(duration.Seconds()) % 60
+
+				if hours > 0 {
+					timeRemaining = fmt.Sprintf("%dh%dm%ds", hours, minutes, seconds)
+				} else if minutes > 0 {
+					timeRemaining = fmt.Sprintf("%dm%ds", minutes, seconds)
+				} else {
+					timeRemaining = fmt.Sprintf("%ds", seconds)
+				}
 			}
 		}
 

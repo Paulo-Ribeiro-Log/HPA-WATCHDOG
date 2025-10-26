@@ -60,9 +60,10 @@ type Model struct {
 	anomalyChan  chan analyzer.Anomaly
 
 	// Canais de controle
-	setupDoneChan chan struct{}
-	pauseChan     chan struct{}
-	stopChan      chan struct{}
+	setupDoneChan  chan struct{}
+	pauseChan      chan struct{}
+	stopChan       chan struct{}
+	scanStatusChan chan scanStatusMsg
 }
 
 // ClusterInfo informações resumidas de um cluster
@@ -90,6 +91,7 @@ func New() Model {
 		setupDoneChan:  make(chan struct{}, 1),
 		pauseChan:      make(chan struct{}, 1),
 		stopChan:       make(chan struct{}, 1),
+		scanStatusChan: make(chan scanStatusMsg, 10),
 	}
 }
 
@@ -99,6 +101,7 @@ func (m Model) Init() tea.Cmd {
 		tickCmd(),
 		waitForSnapshot(m.snapshotChan),
 		waitForAnomaly(m.anomalyChan),
+		waitForScanStatus(m.scanStatusChan),
 	)
 }
 
@@ -125,6 +128,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case anomalyMsg:
 		m.handleAnomaly(msg.anomaly)
 		return m, waitForAnomaly(m.anomalyChan)
+
+	case scanStatusMsg:
+		m.scanRunning = msg.running
+		m.scanPaused = msg.paused
+		if !msg.startTime.IsZero() {
+			m.scanStartTime = msg.startTime
+		}
+		return m, waitForScanStatus(m.scanStatusChan)
 	}
 
 	return m, nil
@@ -382,6 +393,24 @@ func (m Model) GetStopChan() chan struct{} {
 	return m.stopChan
 }
 
+// GetScanStatusChan retorna canal de status do scan
+func (m Model) GetScanStatusChan() chan scanStatusMsg {
+	return m.scanStatusChan
+}
+
+// UpdateScanStatus envia atualização de status do scan
+func (m Model) UpdateScanStatus(running, paused bool, startTime time.Time) {
+	select {
+	case m.scanStatusChan <- scanStatusMsg{
+		running:   running,
+		paused:    paused,
+		startTime: startTime,
+	}:
+	default:
+		// Canal cheio, ignora
+	}
+}
+
 // GetScanConfig retorna configuração do scan
 func (m Model) GetScanConfig() *scanner.ScanConfig {
 	if m.setupState == nil {
@@ -468,6 +497,11 @@ type snapshotMsg struct {
 type anomalyMsg struct {
 	anomaly analyzer.Anomaly
 }
+type scanStatusMsg struct {
+	running   bool
+	paused    bool
+	startTime time.Time
+}
 
 // Commands
 func tickCmd() tea.Cmd {
@@ -487,5 +521,12 @@ func waitForAnomaly(ch chan analyzer.Anomaly) tea.Cmd {
 	return func() tea.Msg {
 		anomaly := <-ch
 		return anomalyMsg{anomaly: anomaly}
+	}
+}
+
+func waitForScanStatus(ch chan scanStatusMsg) tea.Cmd {
+	return func() tea.Msg {
+		status := <-ch
+		return status
 	}
 }
