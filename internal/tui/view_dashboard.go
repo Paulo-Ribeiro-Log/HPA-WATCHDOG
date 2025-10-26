@@ -126,6 +126,7 @@ func (m Model) renderTabs() string {
 		"Dashboard",
 		"Alertas",
 		"Clusters",
+		"Histórico",
 		"Detalhes",
 	}
 
@@ -134,7 +135,8 @@ func (m Model) renderTabs() string {
 		ViewDashboard, // Tab 0
 		ViewAlerts,    // Tab 1
 		ViewClusters,  // Tab 2
-		ViewDetails,   // Tab 3
+		ViewHistory,   // Tab 3
+		ViewDetails,   // Tab 4
 	}
 
 	var rendered []string

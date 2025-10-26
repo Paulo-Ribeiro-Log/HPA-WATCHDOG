@@ -17,6 +17,7 @@ const (
 	ViewDashboard
 	ViewAlerts
 	ViewClusters
+	ViewHistory // Análise histórica com gráficos
 	ViewDetails
 )
 
@@ -159,6 +160,8 @@ func (m Model) View() string {
 		return m.renderAlerts()
 	case ViewClusters:
 		return m.renderClusters()
+	case ViewHistory:
+		return m.renderHistory()
 	case ViewDetails:
 		return m.renderDetails()
 	default:
@@ -179,13 +182,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "tab":
 		// Navega entre as views principais (exceto Setup)
-		// Ciclo: Dashboard -> Alertas -> Clusters -> Detalhes -> Dashboard
+		// Ciclo: Dashboard -> Alertas -> Clusters -> Histórico -> Detalhes -> Dashboard
 		switch m.currentView {
 		case ViewDashboard:
 			m.currentView = ViewAlerts
 		case ViewAlerts:
 			m.currentView = ViewClusters
 		case ViewClusters:
+			m.currentView = ViewHistory
+		case ViewHistory:
 			m.currentView = ViewDetails
 		case ViewDetails:
 			m.currentView = ViewDashboard
@@ -198,7 +203,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "shift+tab":
 		// Navega para trás entre as views principais (exceto Setup)
-		// Ciclo reverso: Dashboard -> Detalhes -> Clusters -> Alertas -> Dashboard
+		// Ciclo reverso: Dashboard -> Detalhes -> Histórico -> Clusters -> Alertas -> Dashboard
 		switch m.currentView {
 		case ViewDashboard:
 			m.currentView = ViewDetails
@@ -206,8 +211,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.currentView = ViewDashboard
 		case ViewClusters:
 			m.currentView = ViewAlerts
-		case ViewDetails:
+		case ViewHistory:
 			m.currentView = ViewClusters
+		case ViewDetails:
+			m.currentView = ViewHistory
 		default:
 			// Se estiver em qualquer outra view (ex: Setup), vai para Dashboard
 			m.currentView = ViewDashboard

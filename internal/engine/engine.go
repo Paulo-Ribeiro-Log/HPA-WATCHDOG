@@ -19,9 +19,10 @@ type ScanEngine struct {
 	config *scanner.ScanConfig
 
 	// Componentes
-	pfManager *portforward.PortForwardManager
-	cache     *storage.TimeSeriesCache
-	detector  *analyzer.Detector
+	pfManager   *portforward.PortForwardManager
+	cache       *storage.TimeSeriesCache
+	persistence *storage.Persistence
+	detector    *analyzer.Detector
 
 	// Canais de saída
 	snapshotChan chan *models.HPASnapshot
@@ -41,13 +42,27 @@ type ScanEngine struct {
 func New(cfg *scanner.ScanConfig, snapshotChan chan *models.HPASnapshot, anomalyChan chan analyzer.Anomaly) *ScanEngine {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Cria cache
 	cache := storage.NewTimeSeriesCache(nil)
+
+	// Cria e configura persistência SQLite
+	persistence, err := storage.NewPersistence(storage.DefaultPersistenceConfig())
+	if err != nil {
+		log.Warn().Err(err).Msg("Falha ao criar persistência, continuando sem SQLite")
+		persistence = nil
+	} else {
+		// Configura persistência no cache (habilita auto-save/auto-load)
+		cache.SetPersistence(persistence)
+		log.Info().Msg("Persistência SQLite habilitada com auto-save")
+	}
+
 	detector := analyzer.NewDetector(cache, nil)
 
 	return &ScanEngine{
 		config:       cfg,
 		pfManager:    portforward.NewManager(),
 		cache:        cache,
+		persistence:  persistence,
 		detector:     detector,
 		snapshotChan: snapshotChan,
 		anomalyChan:  anomalyChan,
@@ -114,6 +129,17 @@ func (e *ScanEngine) Stop() error {
 
 	// Aguarda goroutines
 	e.wg.Wait()
+
+	// Cleanup e fecha persistência
+	if e.persistence != nil {
+		if err := e.persistence.Cleanup(); err != nil {
+			log.Warn().Err(err).Msg("Erro ao limpar dados antigos")
+		}
+		if err := e.persistence.Close(); err != nil {
+			log.Warn().Err(err).Msg("Erro ao fechar banco de dados")
+		}
+		log.Info().Msg("Persistência SQLite fechada")
+	}
 
 	log.Info().Msg("Scan engine parado")
 	return nil
