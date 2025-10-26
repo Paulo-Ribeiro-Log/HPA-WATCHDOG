@@ -71,7 +71,8 @@ type ClusterInfo struct {
 	Name           string
 	TotalHPAs      int
 	TotalAnomalies int
-	Status         string // "Online", "Offline", "Error"
+	TotalScans     int       // Quantidade de scans executados
+	Status         string    // "Online", "Offline", "Error"
 	LastScan       time.Time
 }
 
@@ -278,6 +279,7 @@ func (m *Model) handleSnapshot(snapshot *models.HPASnapshot) {
 	}
 
 	cluster.TotalHPAs++
+	cluster.TotalScans++
 	cluster.LastScan = time.Now()
 }
 
@@ -352,14 +354,22 @@ func (m Model) getFilteredAnomalies() []analyzer.Anomaly {
 	return filtered
 }
 
-// getSortedClusters retorna clusters ordenados por nome
+// getSortedClusters retorna clusters ordenados por nome alfabeticamente
 func (m Model) getSortedClusters() []*ClusterInfo {
 	clusters := make([]*ClusterInfo, 0, len(m.clusters))
 	for _, c := range m.clusters {
 		clusters = append(clusters, c)
 	}
 
-	// TODO: Ordenar por nome ou outro critério
+	// Ordenação alfabética por nome (bubble sort simples)
+	for i := 0; i < len(clusters); i++ {
+		for j := i + 1; j < len(clusters); j++ {
+			if clusters[i].Name > clusters[j].Name {
+				clusters[i], clusters[j] = clusters[j], clusters[i]
+			}
+		}
+	}
+
 	return clusters
 }
 

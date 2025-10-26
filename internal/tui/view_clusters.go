@@ -46,6 +46,7 @@ func (m Model) renderClusterList(clusters []*ClusterInfo) string {
 		TableHeaderStyle.Copy().Width(15).Render("Status"),
 		TableHeaderStyle.Copy().Width(30).Render("Cluster"),
 		TableHeaderStyle.Copy().Width(10).Render("HPAs"),
+		TableHeaderStyle.Copy().Width(10).Render("Scans"),
 		TableHeaderStyle.Copy().Width(12).Render("Anomalias"),
 		TableHeaderStyle.Copy().Width(18).Render("Último Scan"),
 		TableHeaderStyle.Copy().Width(20).Render("Tempo Restante"),
@@ -64,6 +65,7 @@ func (m Model) renderClusterList(clusters []*ClusterInfo) string {
 		status := ClusterStatusBadge(cluster.Status)
 		name := truncateString(cluster.Name, 28) // Trunca nome longo
 		hpas := fmt.Sprintf("%d", cluster.TotalHPAs)
+		scans := fmt.Sprintf("%d", cluster.TotalScans)
 		anomalies := ""
 		if cluster.TotalAnomalies > 0 {
 			anomalies = StatusWarningStyle.Render(fmt.Sprintf("%d", cluster.TotalAnomalies))
@@ -122,6 +124,7 @@ func (m Model) renderClusterList(clusters []*ClusterInfo) string {
 			rowStyle.Copy().Width(15).Render(status),
 			rowStyle.Copy().Width(30).Render(name),
 			rowStyle.Copy().Width(10).Render(hpas),
+			rowStyle.Copy().Width(10).Render(scans),
 			rowStyle.Copy().Width(12).Render(anomalies),
 			rowStyle.Copy().Width(18).Render(lastScan),
 			rowStyle.Copy().Width(20).Render(timeRemaining),
