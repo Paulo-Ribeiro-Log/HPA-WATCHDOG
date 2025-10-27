@@ -127,16 +127,18 @@ func (m Model) renderTabs() string {
 		"Alertas",
 		"Clusters",
 		"Histórico",
+		"Stress Test",
 		"Detalhes",
 	}
 
 	// Mapeia corretamente tab index para ViewType (pula ViewSetup que é índice 0)
 	viewMapping := []ViewType{
-		ViewDashboard, // Tab 0
-		ViewAlerts,    // Tab 1
-		ViewClusters,  // Tab 2
-		ViewHistory,   // Tab 3
-		ViewDetails,   // Tab 4
+		ViewDashboard,  // Tab 0
+		ViewAlerts,     // Tab 1
+		ViewClusters,   // Tab 2
+		ViewHistory,    // Tab 3
+		ViewStressTest, // Tab 4
+		ViewDetails,    // Tab 5
 	}
 
 	var rendered []string
@@ -345,7 +347,7 @@ func (m Model) renderRecentAnomalies(limit int) string {
 }
 
 func (m Model) renderFooter() string {
-	help := "Tab: Mudar view  •  H/Home: Primeira view  •  ↑↓/jk: Navegar  •  Enter: Selecionar  •  1-4: Filtros  •  R/F5: Refresh"
+	help := "Tab: Mudar view  •  H/Home: Primeira view  •  ↑↓/jk: Navegar  •  Enter: Selecionar  •  1-4: Filtros  •  R/F5: Refresh  •  Shift+R: Reiniciar"
 
 	// Adiciona status de scan e tecla P se scan estiver rodando
 	if m.scanRunning {

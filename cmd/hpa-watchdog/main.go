@@ -27,56 +27,79 @@ func main() {
 	// Inicia programa Bubble Tea
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
-	// Goroutine para monitorar confirmação do setup e iniciar scan
+	// Goroutine para monitorar confirmação do setup e gerenciar scan engine
 	go func() {
 		// Aguarda confirmação do setup
 		<-model.GetSetupDoneChan()
 
-		config := model.GetScanConfig()
-		if config == nil {
-			log.Warn().Msg("Configuração de scan não disponível")
-			return
-		}
-
-		log.Info().
-			Str("mode", config.Mode.String()).
-			Int("targets", len(config.Targets)).
-			Msg("Iniciando scan engine")
-
-		// Cria e inicia scan engine
-		scanEngine := engine.New(
-			config,
-			model.GetSnapshotChan(),
-			model.GetAnomalyChan(),
-		)
-
-		if err := scanEngine.Start(); err != nil {
-			log.Error().Err(err).Msg("Erro ao iniciar scan engine")
-			return
-		}
-
-		// Atualiza estado do model via canal
-		startTime := time.Now()
-		model.UpdateScanStatus(true, false, startTime)
-
-		// Aguarda comandos de pausa/stop
+		// Loop principal que permite reinícios
 		for {
-			select {
-			case <-model.GetPauseChan():
-				if scanEngine.IsPaused() {
-					scanEngine.Resume()
-					model.UpdateScanStatus(true, false, startTime)
-				} else {
-					scanEngine.Pause()
-					model.UpdateScanStatus(true, true, startTime)
-				}
-
-			case <-model.GetStopChan():
-				log.Info().Msg("Parando scan engine")
-				scanEngine.Stop()
-				model.UpdateScanStatus(false, false, time.Time{})
+			config := model.GetScanConfig()
+			if config == nil {
+				log.Warn().Msg("Configuração de scan não disponível")
 				return
 			}
+
+			log.Info().
+				Str("mode", config.Mode.String()).
+				Int("targets", len(config.Targets)).
+				Msg("Iniciando scan engine")
+
+			// Cria e inicia scan engine
+			scanEngine := engine.New(
+				config,
+				model.GetSnapshotChan(),
+				model.GetAnomalyChan(),
+			)
+
+			if err := scanEngine.Start(); err != nil {
+				log.Error().Err(err).Msg("Erro ao iniciar scan engine")
+				return
+			}
+
+			// Atualiza estado do model via canal
+			startTime := time.Now()
+			model.UpdateScanStatus(true, false, startTime)
+
+			// Aguarda comandos de pausa/stop/restart
+			shouldRestart := false
+		controlLoop:
+			for {
+				select {
+				case <-model.GetPauseChan():
+					if scanEngine.IsPaused() {
+						log.Info().Msg("Retomando scan engine")
+						scanEngine.Resume()
+						model.UpdateScanStatus(true, false, startTime)
+					} else {
+						log.Info().Msg("Pausando scan engine")
+						scanEngine.Pause()
+						model.UpdateScanStatus(true, true, startTime)
+					}
+
+				case <-model.GetStopChan():
+					log.Info().Msg("Parando scan engine")
+					scanEngine.Stop()
+					model.UpdateScanStatus(false, false, time.Time{})
+					return
+
+				case <-model.GetRestartChan():
+					log.Info().Msg("Reiniciando scan engine")
+					scanEngine.Stop()
+					model.UpdateScanStatus(false, false, time.Time{})
+					shouldRestart = true
+					break controlLoop // Sai do loop de controle para reiniciar
+				}
+			}
+
+			// Se não deve reiniciar, sai do loop principal
+			if !shouldRestart {
+				return
+			}
+
+			// Aguarda um momento antes de reiniciar
+			time.Sleep(200 * time.Millisecond)
+			log.Info().Msg("Iniciando novo ciclo de scan")
 		}
 	}()
 

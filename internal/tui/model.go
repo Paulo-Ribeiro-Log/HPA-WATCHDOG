@@ -17,7 +17,8 @@ const (
 	ViewDashboard
 	ViewAlerts
 	ViewClusters
-	ViewHistory // Análise histórica com gráficos
+	ViewHistory    // Análise histórica com gráficos
+	ViewStressTest // Dashboard de stress test
 	ViewDetails
 )
 
@@ -64,6 +65,7 @@ type Model struct {
 	setupDoneChan  chan struct{}
 	pauseChan      chan struct{}
 	stopChan       chan struct{}
+	restartChan    chan struct{} // Canal para sinalizar reinício
 	scanStatusChan chan scanStatusMsg
 }
 
@@ -95,6 +97,7 @@ func New() Model {
 		setupDoneChan:  make(chan struct{}, 1),
 		pauseChan:      make(chan struct{}, 1),
 		stopChan:       make(chan struct{}, 1),
+		restartChan:    make(chan struct{}, 1), // Canal de reinício
 		scanStatusChan: make(chan scanStatusMsg, 10),
 	}
 }
@@ -162,6 +165,8 @@ func (m Model) View() string {
 		return m.renderClusters()
 	case ViewHistory:
 		return m.renderHistory()
+	case ViewStressTest:
+		return m.renderStressTest()
 	case ViewDetails:
 		return m.renderDetails()
 	default:
@@ -182,7 +187,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "tab":
 		// Navega entre as views principais (exceto Setup)
-		// Ciclo: Dashboard -> Alertas -> Clusters -> Histórico -> Detalhes -> Dashboard
+		// Ciclo: Dashboard -> Alertas -> Clusters -> Histórico -> Stress Test -> Detalhes -> Dashboard
 		switch m.currentView {
 		case ViewDashboard:
 			m.currentView = ViewAlerts
@@ -191,6 +196,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case ViewClusters:
 			m.currentView = ViewHistory
 		case ViewHistory:
+			m.currentView = ViewStressTest
+		case ViewStressTest:
 			m.currentView = ViewDetails
 		case ViewDetails:
 			m.currentView = ViewDashboard
@@ -203,7 +210,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "shift+tab":
 		// Navega para trás entre as views principais (exceto Setup)
-		// Ciclo reverso: Dashboard -> Detalhes -> Histórico -> Clusters -> Alertas -> Dashboard
+		// Ciclo reverso: Dashboard -> Detalhes -> Stress Test -> Histórico -> Clusters -> Alertas -> Dashboard
 		switch m.currentView {
 		case ViewDashboard:
 			m.currentView = ViewDetails
@@ -213,8 +220,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.currentView = ViewAlerts
 		case ViewHistory:
 			m.currentView = ViewClusters
-		case ViewDetails:
+		case ViewStressTest:
 			m.currentView = ViewHistory
+		case ViewDetails:
+			m.currentView = ViewStressTest
 		default:
 			// Se estiver em qualquer outra view (ex: Setup), vai para Dashboard
 			m.currentView = ViewDashboard
@@ -248,6 +257,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Force refresh
 		return m, nil
 
+	case "R":
+		// Reiniciar aplicação (shift+r)
+		return m.handleRestart()
+
 	case "p":
 		// Pausar/Retomar scan
 		if m.scanRunning {
@@ -256,6 +269,35 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case m.pauseChan <- struct{}{}:
 			default:
 			}
+		}
+		return m, nil
+
+	case "x":
+		// Cancelar teste (para sem gerar relatório)
+		if m.scanRunning {
+			// Sinaliza cancelamento via canal de stop
+			select {
+			case m.stopChan <- struct{}{}:
+			default:
+			}
+			// Limpa estado do teste
+			m.scanRunning = false
+			m.scanPaused = false
+		}
+		return m, nil
+
+	case "s":
+		// Parar teste e gerar relatório
+		if m.scanRunning {
+			// Sinaliza stop via canal
+			select {
+			case m.stopChan <- struct{}{}:
+			default:
+			}
+			// TODO: Acionar geração de relatório
+			// Por enquanto, apenas para o teste
+			m.scanRunning = false
+			m.scanPaused = false
 		}
 		return m, nil
 
@@ -362,6 +404,59 @@ func (m Model) handleSelect() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleRestart reinicia a aplicação limpando dados e sinalizando reinício
+func (m Model) handleRestart() (tea.Model, tea.Cmd) {
+	// Salva a view atual para decidir comportamento
+	wasInStressTest := m.currentView == ViewStressTest
+	wasRunning := m.scanRunning
+
+	// Para o scan se estiver rodando
+	if m.scanRunning {
+		select {
+		case m.stopChan <- struct{}{}:
+		default:
+		}
+	}
+
+	// Aguarda um momento para o engine processar o stop
+	time.Sleep(100 * time.Millisecond)
+
+	// Limpa todos os dados em cache
+	m.snapshots = make(map[string]*models.TimeSeriesData)
+	m.anomalies = []analyzer.Anomaly{}
+	m.clusters = make(map[string]*ClusterInfo)
+
+	// Reseta estado
+	m.scanRunning = false
+	m.scanPaused = false
+	m.scanStartTime = time.Time{}
+	m.cursorPos = 0
+	m.selectedCluster = ""
+	m.selectedNamespace = ""
+	m.selectedHPA = ""
+	m.selectedAnomaly = 0
+	m.filterSeverity = "All"
+	m.filterCluster = ""
+
+	// Se estava em stress test e rodando, mantém na view e sinaliza restart
+	if wasInStressTest && wasRunning {
+		m.currentView = ViewStressTest
+
+		// Sinaliza reinício automático do teste
+		if m.restartChan != nil {
+			select {
+			case m.restartChan <- struct{}{}:
+			default:
+			}
+		}
+	} else {
+		// Caso contrário, volta para dashboard
+		m.currentView = ViewDashboard
+	}
+
+	return m, nil
+}
+
 // getMaxCursorPos retorna posição máxima do cursor para a view atual
 func (m Model) getMaxCursorPos() int {
 	switch m.currentView {
@@ -369,6 +464,9 @@ func (m Model) getMaxCursorPos() int {
 		return len(m.getFilteredAnomalies()) - 1
 	case ViewClusters:
 		return len(m.clusters) - 1
+	case ViewStressTest:
+		// Retorna número de HPAs disponíveis para navegação
+		return len(m.snapshots) - 1
 	default:
 		return 0
 	}
@@ -445,6 +543,11 @@ func (m Model) GetPauseChan() chan struct{} {
 // GetStopChan retorna canal de stop
 func (m Model) GetStopChan() chan struct{} {
 	return m.stopChan
+}
+
+// GetRestartChan retorna canal de restart
+func (m Model) GetRestartChan() chan struct{} {
+	return m.restartChan
 }
 
 // GetScanStatusChan retorna canal de status do scan

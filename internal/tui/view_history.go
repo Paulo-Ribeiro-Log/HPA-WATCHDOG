@@ -5,10 +5,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	"github.com/Paulo-Ribeiro-Log/hpa-watchdog/internal/models"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/guptarohit/asciigraph"
 )
+
+// localTimezone já está definido em view_stresstest.go
+// toLocalTime já está definido em view_stresstest.go
 
 // Período de análise histórica
 type HistoryPeriod int
@@ -168,26 +171,58 @@ func (m Model) renderCPUGraph(ts *models.TimeSeriesData) string {
 		return BoxStyle.Width(m.width - 4).Render("Sem dados de CPU")
 	}
 
-	// Extrai dados de CPU
-	cpuData := make([]float64, 0, len(snapshots))
+	// Extrai dados de CPU com timestamps (convertidos para GMT-3)
+	timePoints := make([]timeserieslinechart.TimePoint, 0, len(snapshots))
 	for _, s := range snapshots {
-		cpuData = append(cpuData, s.CPUCurrent)
+		timePoints = append(timePoints, timeserieslinechart.TimePoint{
+			Time:  toLocalTime(s.Timestamp),
+			Value: s.CPUCurrent,
+		})
 	}
 
-	// Gera gráfico ASCII
+	// Dimensões do gráfico
 	graphWidth := m.width - 10
 	if graphWidth < 40 {
 		graphWidth = 40
 	}
+	graphHeight := 10
 
-	graph := asciigraph.Plot(cpuData,
-		asciigraph.Height(10),
-		asciigraph.Width(graphWidth),
-		asciigraph.Caption("CPU Usage (%)"),
+	// Calcula range Y
+	stats := ts.Stats
+	minY := stats.CPUMin - (stats.CPUMax-stats.CPUMin)*0.1
+	maxY := stats.CPUMax + (stats.CPUMax-stats.CPUMin)*0.1
+	if maxY == minY {
+		maxY = minY + 1
+	}
+
+	// Cria formatador para eixo Y (valores com 1 decimal + %)
+	yFormatter := func(index int, value float64) string {
+		return fmt.Sprintf("%.1f%%", value)
+	}
+
+	// Cria time series chart com formatadores customizados
+	tsc := timeserieslinechart.New(
+		graphWidth, graphHeight,
+		timeserieslinechart.WithYRange(minY, maxY),
+		timeserieslinechart.WithYLabelFormatter(yFormatter),
+		timeserieslinechart.WithXLabelFormatter(customTimeLabelFormatter()),
+		timeserieslinechart.WithXYSteps(5, 6), // 5 labels no eixo X, 6 no eixo Y
 	)
 
-	// Adiciona estatísticas
-	stats := ts.Stats
+	// Adiciona pontos
+	for _, tp := range timePoints {
+		tsc.Push(tp)
+	}
+
+	// Desenha e renderiza
+	tsc.Draw()
+	graph := tsc.View()
+
+	// Linha de estatísticas
+	cpuData := make([]float64, 0, len(snapshots))
+	for _, s := range snapshots {
+		cpuData = append(cpuData, s.CPUCurrent)
+	}
 	statsLine := fmt.Sprintf("Min: %.1f%%  │  Max: %.1f%%  │  Atual: %.1f%%  │  Média: %.1f%%  │  Trend: %s",
 		stats.CPUMin,
 		stats.CPUMax,
@@ -213,28 +248,17 @@ func (m Model) renderReplicaGraph(ts *models.TimeSeriesData) string {
 		return BoxStyle.Width(m.width - 4).Render("Sem dados de réplicas")
 	}
 
-	// Extrai dados de réplicas
-	replicaData := make([]float64, 0, len(snapshots))
-	for _, s := range snapshots {
-		replicaData = append(replicaData, float64(s.CurrentReplicas))
-	}
-
-	// Gera gráfico ASCII
-	graphWidth := m.width - 10
-	if graphWidth < 40 {
-		graphWidth = 40
-	}
-
-	graph := asciigraph.Plot(replicaData,
-		asciigraph.Height(8),
-		asciigraph.Width(graphWidth),
-		asciigraph.Caption("Réplicas"),
-	)
-
-	// Calcula estatísticas de réplicas
+	// Extrai dados de réplicas com timestamps (convertidos para GMT-3)
+	timePoints := make([]timeserieslinechart.TimePoint, 0, len(snapshots))
 	var minRep, maxRep int32 = 999999, 0
 	var sumRep int64 = 0
+
 	for _, s := range snapshots {
+		timePoints = append(timePoints, timeserieslinechart.TimePoint{
+			Time:  toLocalTime(s.Timestamp),
+			Value: float64(s.CurrentReplicas),
+		})
+
 		if s.CurrentReplicas < minRep {
 			minRep = s.CurrentReplicas
 		}
@@ -243,8 +267,47 @@ func (m Model) renderReplicaGraph(ts *models.TimeSeriesData) string {
 		}
 		sumRep += int64(s.CurrentReplicas)
 	}
+
 	avgRep := float64(sumRep) / float64(len(snapshots))
 
+	// Dimensões do gráfico
+	graphWidth := m.width - 10
+	if graphWidth < 40 {
+		graphWidth = 40
+	}
+	graphHeight := 8
+
+	// Calcula range Y (adiciona margem)
+	minY := float64(minRep) - 1
+	maxY := float64(maxRep) + 1
+	if maxY == minY {
+		maxY = minY + 1
+	}
+
+	// Cria formatador para eixo Y (valores inteiros)
+	yFormatter := func(index int, value float64) string {
+		return fmt.Sprintf("%d", int(value))
+	}
+
+	// Cria time series chart com formatadores customizados
+	tsc := timeserieslinechart.New(
+		graphWidth, graphHeight,
+		timeserieslinechart.WithYRange(minY, maxY),
+		timeserieslinechart.WithYLabelFormatter(yFormatter),
+		timeserieslinechart.WithXLabelFormatter(customTimeLabelFormatter()),
+		timeserieslinechart.WithXYSteps(5, 6), // 5 labels no eixo X, 6 no eixo Y
+	)
+
+	// Adiciona pontos
+	for _, tp := range timePoints {
+		tsc.Push(tp)
+	}
+
+	// Desenha e renderiza
+	tsc.Draw()
+	graph := tsc.View()
+
+	// Linha de estatísticas
 	latest := snapshots[len(snapshots)-1]
 	statsLine := fmt.Sprintf("Min: %d  │  Max: %d  │  Atual: %d  │  Média: %.1f  │  Mudanças: %d",
 		minRep,
@@ -351,7 +414,7 @@ func (m Model) renderDeviationStatus(deviation, threshold float64) string {
 }
 
 func (m Model) renderHistoryFooter() string {
-	help := "Tab: Mudar view  •  ↑↓/jk: Navegar HPAs  •  1-9: Período  •  H/Home: Dashboard  •  Q: Sair"
+	help := "Tab: Mudar view  •  ↑↓/jk: Navegar HPAs  •  1-9: Período  •  H/Home: Dashboard  •  Shift+R: Reiniciar  •  Q: Sair"
 
 	// Adiciona status de scan e tecla P se scan estiver rodando
 	if m.scanRunning {

@@ -282,6 +282,16 @@ func (c *Collector) GetCluster() *models.ClusterInfo {
 	return c.cluster
 }
 
+// GetPrometheusClient retorna cliente Prometheus
+func (c *Collector) GetPrometheusClient() *prometheus.Client {
+	return c.promClient
+}
+
+// GetK8sClient retorna cliente K8s
+func (c *Collector) GetK8sClient() *K8sClient {
+	return c.k8sClient
+}
+
 // IsPrometheusConnected retorna se Prometheus está conectado
 func (c *Collector) IsPrometheusConnected() bool {
 	if c.promClient == nil {
