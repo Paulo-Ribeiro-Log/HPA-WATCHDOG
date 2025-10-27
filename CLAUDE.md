@@ -17,7 +17,8 @@ Este arquivo fornece orientações ao Claude Code (claude.ai/code) ao trabalhar 
 - ✅ **Camada de Coleta**: Orquestração unificada de K8s + Prometheus + Analyzer
 - ✅ **Camada de Configuração**: Sistema de configuração baseado em YAML
 - ✅ **Camada de Persistência**: SQLite com auto-save/load e limpeza
-- 🔄 **Camada TUI**: Próxima (Fase 3)
+- ✅ **Camada TUI**: 7 views implementadas (Dashboard, Alertas, Clusters, Histórico, Stress Test, Relatório Final, Detalhes)
+- ✅ **Stress Test Mode**: Baseline capture, comparação em tempo real, relatório final automatizado
 - ⚠️ **Camada Alertmanager**: Opcional (não crítica para o MVP)
 
 ## Filosofia Central: KISS (Keep It Simple, Stupid)
@@ -300,6 +301,56 @@ Cada cluster executa uma goroutine independente:
 
 **Na inicialização**: Carrega os últimos 5 minutos do SQLite → Pronto para detectar mudanças imediatamente!
 
+## Modo Stress Test
+
+O HPA Watchdog possui um modo especializado para testes de carga e validação de configurações de HPA:
+
+### Funcionalidades
+1. **Baseline Capture**: Captura estado PRE (réplicas, CPU, memory) antes do teste iniciar
+2. **Monitoramento em Tempo Real**: Dashboard interativo com gráficos de CPU/Memory (timezone GMT-3)
+3. **Comparação Automática**: Compara cada scan com baseline e detecta desvios
+4. **Término Automático**: Para automaticamente ao fim da duração configurada
+5. **Relatório Final Automático**: Gera e exibe relatório completo ao término
+
+### Fluxo do Stress Test
+```
+Setup → Baseline Capture (30min histórico) → Teste Inicia → Scans Periódicos
+→ Comparação com Baseline → Término (automático ou manual) → Relatório Final
+```
+
+### Relatório Final
+Gerado automaticamente ao término e exibido na **ViewStressReport**:
+- **Badge PASS/FAIL**: Baseado em % de HPAs com problemas críticos (<10% = PASS)
+- **Barra de Saúde**: Visualização percentual de HPAs saudáveis
+- **Resumo Executivo**: Duração, scans, HPAs monitorados, problemas detectados
+- **Métricas de Pico**:
+  - CPU Máximo (valor, HPA, horário)
+  - Memory Máximo (valor, HPA, horário)
+  - **Evolução de Réplicas**: PRE → PEAK → POST com % de aumento
+  - Taxa de Erro Máxima (se aplicável)
+  - Latência P95 Máxima (se aplicável)
+- **Problemas Detectados**: Lista de Critical Issues e Warnings (top 5 cada)
+- **Recomendações**: Ações priorizadas por categoria (Scaling/Resources/Config/Code/Infra)
+
+### Controles do Stress Test
+- **P**: Pausar/Retomar scan
+- **Shift+R**: Reiniciar teste (mantém na view, limpa dados, recaptura baseline)
+- **E**: Exportar relatório em Markdown (TODO)
+- **Shift+E**: Exportar relatório em PDF (TODO)
+- **Scroll**: Menu de seleção de HPAs com viewport para listas grandes
+
+### StressTestMetrics
+Estrutura completa (`internal/models/stresstest.go`) que captura:
+- Metadados do teste (nome, duração, status, scans)
+- Métricas gerais (clusters, HPAs, problemas)
+- Métricas de pico (PeakMetrics struct)
+- Problemas por severidade (CriticalIssues, WarningIssues, InfoIssues)
+- HPAMetrics por HPA individual
+- Timeline de eventos
+- Recomendações geradas
+
+**Persistência**: Baseline e resultados são salvos no SQLite para análise posterior.
+
 ## Detecção de Anomalias
 
 ### Integração com Alertmanager (Primária)
@@ -352,25 +403,37 @@ Total: **10 tipos de anomalia** cobrindo tanto tendências graduais quanto mudan
 ## Navegação da TUI
 
 ### Controles de Teclado
-- `Tab`: Troca de views (Dashboard, Alertas, Clusters, Config)
-- `↑↓` ou `j k`: Navega em listas
-- `Enter`: Ver detalhes / Editar
+#### Gerais
+- `Tab`: Troca de views (Dashboard, Alertas, Clusters, Histórico, Stress Test, Relatório)
+- `↑↓` ou `j k`: Navega em listas (com scroll automático em menus grandes)
+- `Enter`: Ver detalhes / Selecionar
+- `H` ou `Home`: Volta para Dashboard
+- `F5` ou `R`: Forçar refresh
+- `Ctrl+C` ou `Q`: Sair
+- `?`: Ajuda
+
+#### Alertas
 - `A`: Reconhecer alerta
 - `Shift+A`: Reconhecer todos os alertas
 - `S`: Silenciar alerta (cria silêncio no Alertmanager)
 - `C`: Limpar alertas reconhecidos
 - `E`: Enriquecer alerta com contexto de métricas
 - `D`: Ver detalhes do alerta
-- `H`: Ver histórico do snapshot
-- `F5`: Forçar refresh
-- `Ctrl+C` ou `Q`: Sair
-- `?`: Ajuda
 
-### Visões
-1. **Dashboard**: Visão geral multi-cluster, resumo de alertas, gráficos ASCII, estatísticas rápidas
-2. **Alertas**: Lista detalhada de alertas com filtragem e correlação
-3. **Cluster View**: Detalhamento por cluster e namespace
-4. **Config Modal**: Configuração interativa de thresholds e ajustes
+#### Stress Test
+- `P`: Pausar/Retomar scan
+- `Shift+R`: Reiniciar teste automaticamente (mantém na view de stress test)
+- `E`: Exportar relatório em Markdown
+- `Shift+E`: Exportar relatório em PDF
+
+### Visões (7 views implementadas)
+1. **Setup**: Configuração inicial interativa (clusters, modo, duração, intervalo)
+2. **Dashboard**: Visão geral multi-cluster, resumo de alertas, top clusters, anomalias recentes
+3. **Alertas**: Lista detalhada de alertas com filtragem por severidade/cluster e correlação
+4. **Clusters**: Detalhamento por cluster e namespace com métricas agregadas
+5. **Histórico**: Análise temporal com gráficos de CPU/Memory/Réplicas (timezone GMT-3)
+6. **Stress Test**: Dashboard em tempo real com baseline, gráficos de CPU/Memory, seleção de HPAs com scroll
+7. **Relatório Final**: Resumo executivo do stress test (PASS/FAIL, métricas de pico PRE→PEAK→POST, recomendações)
 
 ## Correlação de Alertas
 
