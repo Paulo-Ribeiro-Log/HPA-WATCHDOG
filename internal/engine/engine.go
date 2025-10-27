@@ -35,8 +35,9 @@ type ScanEngine struct {
 	testStartTime     time.Time
 
 	// Canais de saída
-	snapshotChan chan *models.HPASnapshot
-	anomalyChan  chan analyzer.Anomaly
+	snapshotChan     chan *models.HPASnapshot
+	anomalyChan      chan analyzer.Anomaly
+	stressResultChan chan *models.StressTestMetrics // Canal para enviar resultado final do stress test
 
 	// Controle
 	ctx      context.Context
@@ -49,7 +50,7 @@ type ScanEngine struct {
 }
 
 // New cria novo scan engine
-func New(cfg *scanner.ScanConfig, snapshotChan chan *models.HPASnapshot, anomalyChan chan analyzer.Anomaly) *ScanEngine {
+func New(cfg *scanner.ScanConfig, snapshotChan chan *models.HPASnapshot, anomalyChan chan analyzer.Anomaly, stressResultChan chan *models.StressTestMetrics) *ScanEngine {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cria cache
@@ -69,16 +70,17 @@ func New(cfg *scanner.ScanConfig, snapshotChan chan *models.HPASnapshot, anomaly
 	detector := analyzer.NewDetector(cache, nil)
 
 	return &ScanEngine{
-		config:       cfg,
-		pfManager:    portforward.NewManager(),
-		cache:        cache,
-		persistence:  persistence,
-		detector:     detector,
-		snapshotChan: snapshotChan,
-		anomalyChan:  anomalyChan,
-		ctx:          ctx,
-		cancel:       cancel,
-		stopChan:     make(chan struct{}),
+		config:           cfg,
+		pfManager:        portforward.NewManager(),
+		cache:            cache,
+		persistence:      persistence,
+		detector:         detector,
+		snapshotChan:     snapshotChan,
+		anomalyChan:      anomalyChan,
+		stressResultChan: stressResultChan,
+		ctx:              ctx,
+		cancel:           cancel,
+		stopChan:         make(chan struct{}),
 	}
 }
 
@@ -220,10 +222,14 @@ func (e *ScanEngine) scanLoop() {
 	e.runScan()
 
 	// Controle de duração
-	var durationTimer *time.Timer
+	var durationChan <-chan time.Time
 	if e.config.Duration > 0 {
-		durationTimer = time.NewTimer(e.config.Duration)
-		defer durationTimer.Stop()
+		timer := time.NewTimer(e.config.Duration)
+		defer timer.Stop()
+		durationChan = timer.C
+	} else {
+		// Canal que nunca dispara para duração infinita
+		durationChan = make(<-chan time.Time)
 	}
 
 	scanCount := 0
@@ -235,12 +241,12 @@ func (e *ScanEngine) scanLoop() {
 			log.Info().Msg("Scan loop encerrado (context cancelled)")
 			return
 
-		case <-durationTimer.C:
-			if durationTimer != nil {
-				log.Info().Msg("Duração máxima atingida, parando scans")
-				e.Stop()
-				return
-			}
+		case <-durationChan:
+			log.Info().
+				Dur("duration", e.config.Duration).
+				Msg("Duração máxima atingida, parando scans")
+			e.Stop()
+			return
 
 		case <-ticker.C:
 			// Verifica se pausado
@@ -636,6 +642,16 @@ func (e *ScanEngine) finalizeStressTest() error {
 		Int("replica_increase", e.stressMetrics.PeakMetrics.ReplicaIncrease).
 		Float64("replica_increase_percent", e.stressMetrics.PeakMetrics.ReplicaIncreaseP).
 		Msg("Stress test finalizado")
+
+	// Envia resultado para TUI (non-blocking)
+	if e.stressResultChan != nil {
+		select {
+		case e.stressResultChan <- e.stressMetrics:
+			log.Info().Msg("Resultado do stress test enviado para TUI")
+		default:
+			log.Warn().Msg("Canal de resultado do stress test cheio, descartando")
+		}
+	}
 
 	return nil
 }

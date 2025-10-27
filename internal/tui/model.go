@@ -17,8 +17,9 @@ const (
 	ViewDashboard
 	ViewAlerts
 	ViewClusters
-	ViewHistory    // Análise histórica com gráficos
-	ViewStressTest // Dashboard de stress test
+	ViewHistory       // Análise histórica com gráficos
+	ViewStressTest    // Dashboard de stress test (em tempo real)
+	ViewStressReport  // Relatório final do stress test
 	ViewDetails
 )
 
@@ -57,16 +58,20 @@ type Model struct {
 	scanPaused    bool      // Indica se scan está pausado
 	scanStartTime time.Time // Momento em que o scan foi iniciado
 
+	// Stress Test (apenas em modo stress test)
+	stressTestResult *models.StressTestMetrics // Resultado final do stress test
+
 	// Canais de dados (recebe atualizações do monitor)
 	snapshotChan chan *models.HPASnapshot
 	anomalyChan  chan analyzer.Anomaly
 
 	// Canais de controle
-	setupDoneChan  chan struct{}
-	pauseChan      chan struct{}
-	stopChan       chan struct{}
-	restartChan    chan struct{} // Canal para sinalizar reinício
-	scanStatusChan chan scanStatusMsg
+	setupDoneChan      chan struct{}
+	pauseChan          chan struct{}
+	stopChan           chan struct{}
+	restartChan        chan struct{} // Canal para sinalizar reinício
+	scanStatusChan     chan scanStatusMsg
+	stressResultChan   chan *models.StressTestMetrics // Canal para receber resultado final do stress test
 }
 
 // ClusterInfo informações resumidas de um cluster
@@ -84,21 +89,22 @@ type ClusterInfo struct {
 // New cria nova instância do model
 func New() Model {
 	return Model{
-		currentView:    ViewSetup, // Inicia com setup
-		setupState:     NewSetupState(),
-		snapshots:      make(map[string]*models.TimeSeriesData),
-		anomalies:      []analyzer.Anomaly{},
-		clusters:       make(map[string]*ClusterInfo),
-		filterSeverity: "All",
-		filterCluster:  "",
-		autoRefresh:    true,
-		snapshotChan:   make(chan *models.HPASnapshot, 100),
-		anomalyChan:    make(chan analyzer.Anomaly, 100),
-		setupDoneChan:  make(chan struct{}, 1),
-		pauseChan:      make(chan struct{}, 1),
-		stopChan:       make(chan struct{}, 1),
-		restartChan:    make(chan struct{}, 1), // Canal de reinício
-		scanStatusChan: make(chan scanStatusMsg, 10),
+		currentView:      ViewSetup, // Inicia com setup
+		setupState:       NewSetupState(),
+		snapshots:        make(map[string]*models.TimeSeriesData),
+		anomalies:        []analyzer.Anomaly{},
+		clusters:         make(map[string]*ClusterInfo),
+		filterSeverity:   "All",
+		filterCluster:    "",
+		autoRefresh:      true,
+		snapshotChan:     make(chan *models.HPASnapshot, 100),
+		anomalyChan:      make(chan analyzer.Anomaly, 100),
+		setupDoneChan:    make(chan struct{}, 1),
+		pauseChan:        make(chan struct{}, 1),
+		stopChan:         make(chan struct{}, 1),
+		restartChan:      make(chan struct{}, 1), // Canal de reinício
+		scanStatusChan:   make(chan scanStatusMsg, 10),
+		stressResultChan: make(chan *models.StressTestMetrics, 1), // Canal de resultado do stress test
 	}
 }
 
@@ -109,6 +115,7 @@ func (m Model) Init() tea.Cmd {
 		waitForSnapshot(m.snapshotChan),
 		waitForAnomaly(m.anomalyChan),
 		waitForScanStatus(m.scanStatusChan),
+		waitForStressResult(m.stressResultChan),
 	)
 }
 
@@ -143,6 +150,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scanStartTime = msg.startTime
 		}
 		return m, waitForScanStatus(m.scanStatusChan)
+
+	case stressResultMsg:
+		// Recebeu resultado final do stress test
+		m.stressTestResult = msg.result
+		// Muda automaticamente para a view de relatório
+		m.currentView = ViewStressReport
+		return m, waitForStressResult(m.stressResultChan)
 	}
 
 	return m, nil
@@ -167,6 +181,8 @@ func (m Model) View() string {
 		return m.renderHistory()
 	case ViewStressTest:
 		return m.renderStressTest()
+	case ViewStressReport:
+		return m.renderStressReport()
 	case ViewDetails:
 		return m.renderDetails()
 	default:
@@ -550,6 +566,11 @@ func (m Model) GetRestartChan() chan struct{} {
 	return m.restartChan
 }
 
+// GetStressResultChan retorna canal de resultado do stress test
+func (m Model) GetStressResultChan() chan *models.StressTestMetrics {
+	return m.stressResultChan
+}
+
 // GetScanStatusChan retorna canal de status do scan
 func (m Model) GetScanStatusChan() chan scanStatusMsg {
 	return m.scanStatusChan
@@ -660,6 +681,10 @@ type scanStatusMsg struct {
 	startTime time.Time
 }
 
+type stressResultMsg struct {
+	result *models.StressTestMetrics
+}
+
 // Commands
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -685,5 +710,12 @@ func waitForScanStatus(ch chan scanStatusMsg) tea.Cmd {
 	return func() tea.Msg {
 		status := <-ch
 		return status
+	}
+}
+
+func waitForStressResult(ch chan *models.StressTestMetrics) tea.Cmd {
+	return func() tea.Msg {
+		result := <-ch
+		return stressResultMsg{result: result}
 	}
 }

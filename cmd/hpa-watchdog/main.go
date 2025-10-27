@@ -50,6 +50,7 @@ func main() {
 				config,
 				model.GetSnapshotChan(),
 				model.GetAnomalyChan(),
+				model.GetStressResultChan(),
 			)
 
 			if err := scanEngine.Start(); err != nil {
