@@ -336,6 +336,93 @@ func (c *Client) GetEndpoint() string {
 	return c.endpoint
 }
 
+// GetCPUHistoryRange obtém histórico de CPU com range customizável
+func (c *Client) GetCPUHistoryRange(ctx context.Context, namespace, hpaName string, start, end time.Time) ([]float64, error) {
+	query := fmt.Sprintf(`
+		sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*"}[1m])) /
+		sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s.*",resource="cpu"}) * 100
+	`, namespace, hpaName, namespace, hpaName)
+
+	result, err := c.QueryRange(ctx, query, start, end, 1*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractTimeSeriesFloat64(result)
+}
+
+// GetMemoryHistoryRange obtém histórico de memória com range customizável
+func (c *Client) GetMemoryHistoryRange(ctx context.Context, namespace, hpaName string, start, end time.Time) ([]float64, error) {
+	query := fmt.Sprintf(`
+		sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s.*"}) /
+		sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s.*",resource="memory"}) * 100
+	`, namespace, hpaName, namespace, hpaName)
+
+	result, err := c.QueryRange(ctx, query, start, end, 1*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractTimeSeriesFloat64(result)
+}
+
+// GetReplicaHistoryRange obtém histórico de réplicas com range customizável
+func (c *Client) GetReplicaHistoryRange(ctx context.Context, namespace, hpaName string, start, end time.Time) ([]int32, error) {
+	query := fmt.Sprintf(`
+		kube_horizontalpodautoscaler_status_current_replicas{namespace="%s",horizontalpodautoscaler="%s"}
+	`, namespace, hpaName)
+
+	result, err := c.QueryRange(ctx, query, start, end, 1*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractTimeSeriesInt32(result)
+}
+
+// GetRequestRateHistory obtém histórico de taxa de requisições
+func (c *Client) GetRequestRateHistory(ctx context.Context, namespace, service string, start, end time.Time) ([]float64, error) {
+	query := fmt.Sprintf(`
+		sum(rate(http_requests_total{namespace="%s",service="%s"}[1m]))
+	`, namespace, service)
+
+	result, err := c.QueryRange(ctx, query, start, end, 1*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractTimeSeriesFloat64(result)
+}
+
+// GetErrorRateHistory obtém histórico de taxa de erros (%)
+func (c *Client) GetErrorRateHistory(ctx context.Context, namespace, service string, start, end time.Time) ([]float64, error) {
+	query := fmt.Sprintf(`
+		sum(rate(http_requests_total{namespace="%s",service="%s",status=~"5.."}[1m])) /
+		sum(rate(http_requests_total{namespace="%s",service="%s"}[1m])) * 100
+	`, namespace, service, namespace, service)
+
+	result, err := c.QueryRange(ctx, query, start, end, 1*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractTimeSeriesFloat64(result)
+}
+
+// GetLatencyP95History obtém histórico de latência P95 (ms)
+func (c *Client) GetLatencyP95History(ctx context.Context, namespace, service string, start, end time.Time) ([]float64, error) {
+	query := fmt.Sprintf(`
+		histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="%s",service="%s"}[5m])) by (le)) * 1000
+	`, namespace, service)
+
+	result, err := c.QueryRange(ctx, query, start, end, 1*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractTimeSeriesFloat64(result)
+}
+
 // Helper functions
 
 // extractSingleValue extrai um único valor float64 do resultado

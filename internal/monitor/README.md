@@ -1,304 +1,177 @@
 # Monitor Package
 
-Este package contém a implementação do acesso ao Kubernetes e gerenciamento de port-forwards.
+Unified collector that integrates K8s API, Prometheus, Storage, and Analyzer for HPA monitoring.
 
-## Componentes
+## 📋 Components
 
-### K8sClient (`k8s_client.go`)
-
-Client wrapper para `client-go` que facilita o acesso aos recursos do Kubernetes.
+### 1. K8sClient (`k8s_client.go`)
+Wrapper for Kubernetes client-go with cluster context.
 
 **Features:**
-- Conexão a múltiplos clusters via kubeconfig
-- Listagem de namespaces com filtros
-- Listagem e coleta de dados de HPAs
-- Coleta de informações de Deployments
-- Criação de snapshots completos com todas as informações do HPA
+- Multi-cluster support via kubeconfig contexts
+- HPA listing and snapshot collection
+- Deployment resource extraction
+- Namespace filtering
+- Connection testing
 
-**Exemplo de uso:**
-
+**Usage:**
 ```go
 cluster := &models.ClusterInfo{
     Name:    "production",
-    Context: "production-context",
-    Server:  "https://k8s.example.com",
+    Context: "prod-cluster",
+    Server:  "https://api.prod.k8s.io",
 }
 
-client, err := NewK8sClient(cluster)
+k8sClient, err := monitor.NewK8sClient(cluster)
 if err != nil {
     log.Fatal(err)
 }
 
-// Testa conexão
+// Test connection
 ctx := context.Background()
-if err := client.TestConnection(ctx); err != nil {
+if err := k8sClient.TestConnection(ctx); err != nil {
     log.Fatal(err)
 }
 
-// Lista namespaces
-namespaces, err := client.ListNamespaces(ctx, []string{"test"})
-
-// Lista HPAs
-hpas, err := client.ListHPAs(ctx, "production")
-
-// Coleta snapshot
+// List HPAs
+hpas, err := k8sClient.ListHPAs(ctx, "default")
 for _, hpa := range hpas {
-    snapshot, err := client.CollectHPASnapshot(ctx, &hpa)
-    // Processar snapshot...
+    snapshot, err := k8sClient.CollectHPASnapshot(ctx, &hpa)
+    // ... use snapshot
 }
 ```
 
-### PortForwardManager (`portforward.go`)
+### 2. Collector (`collector.go`) ✅
 
-Gerenciador de port-forwards com lifecycle management e heartbeat automático.
+Unified collector that orchestrates K8s + Prometheus + Analyzer.
 
 **Features:**
-- Port-forwards gerenciados com lifecycle completo
-- **Heartbeat automático**: Se a aplicação não enviar heartbeat por 30s, todos os port-forwards são encerrados
-- **Cleanup automático**: Port-forwards não usados por 5 minutos são automaticamente encerrados
-- Porta padrão: `55553` (configurável)
-- Thread-safe com sync.RWMutex
+- Automatic HPA discovery across namespaces
+- Prometheus enrichment (optional)
+- Time-series cache integration
+- Anomaly detection
+- Monitoring loop with configurable interval
+- Non-blocking result channel
 
-**Por que port 55553?**
-- Evita conflitos com outras aplicações
-- Fácil de lembrar
-- Fora do range de portas comuns
-
-**Proteção contra port-forwards órfãos:**
-
-O manager implementa 3 mecanismos de proteção:
-
-1. **Heartbeat Monitor**: Verifica a cada 10s se recebeu heartbeat nos últimos 30s
-2. **Inactivity Cleanup**: Remove port-forwards não usados há mais de 5 minutos
-3. **Graceful Shutdown**: Ao encerrar, todos os port-forwards são finalizados
-
-**Exemplo de uso:**
-
-```go
-// Cria manager
-mgr := NewPortForwardManager(55553)
-defer mgr.Shutdown() // IMPORTANTE: sempre fazer shutdown
-
-// Inicia port-forward para Prometheus
-err := mgr.StartPortForward(
-    "production",           // cluster
-    "monitoring",           // namespace
-    "prometheus-server",    // service
-    9090,                   // remote port
-)
-
-// Obtém endpoint local
-endpoint, err := mgr.GetLocalEndpoint(
-    "production",
-    "monitoring",
-    "prometheus-server",
-    9090,
-)
-// endpoint = "http://localhost:55553"
-
-// Envia heartbeats periódicos (importante!)
-ticker := time.NewTicker(5 * time.Second)
-go func() {
-    for range ticker.C {
-        mgr.Heartbeat()
-    }
-}()
-
-// Usa o endpoint...
-resp, err := http.Get(endpoint + "/api/v1/query?query=up")
-
-// Status
-status := mgr.GetStatus()
-fmt.Printf("Active forwards: %d\n", status["active_forwards"])
-
-// Shutdown graceful (encerra todos os port-forwards)
-mgr.Shutdown()
+**Architecture:**
+```
+Collector
+├─ K8sClient: Collects HPA state from K8s API
+├─ PrometheusClient: Enriches with metrics (optional)
+├─ TimeSeriesCache: Stores snapshots in-memory
+└─ Detector: Analyzes and detects anomalies
 ```
 
-### MonitoringSession (`example_integration.go`)
-
-Sessão de monitoramento que integra K8s clients e port-forward manager.
-
-**Features:**
-- Gerencia múltiplos clusters simultaneamente
-- Heartbeat automático para port-forwards
-- Coleta de snapshots de todos os HPAs de todos os clusters
-- Setup automático de port-forwards para Prometheus/Alertmanager
-
-**Exemplo de uso completo:**
-
+**Usage:**
 ```go
-// Descobre clusters
-clusters, _ := config.DiscoverClusters(&models.WatchdogConfig{
-    AutoDiscoverClusters: true,
-})
+cluster := &models.ClusterInfo{
+    Name:    "production",
+    Context: "prod-cluster",
+    Server:  "https://api.prod.k8s.io",
+}
 
-// Cria sessão
-session, err := NewMonitoringSession(clusters)
+config := monitor.DefaultCollectorConfig()
+config.ScanInterval = 30 * time.Second
+config.EnablePrometheus = true
+config.ExcludeNamespaces = []string{"monitoring", "logging"}
+
+// Create collector
+collector, err := monitor.NewCollector(
+    cluster,
+    "http://prometheus.monitoring.svc:9090", // Prometheus endpoint
+    config,
+)
 if err != nil {
     log.Fatal(err)
 }
-defer session.Shutdown()
 
-// Setup Prometheus port-forward
-endpoint, err := session.SetupPrometheusPortForward(
-    "production",
-    "monitoring",
-    "prometheus-server",
-)
+// Single scan
+ctx := context.Background()
+result, err := collector.Scan(ctx)
+if err != nil {
+    log.Fatal(err)
+}
 
-// Loop de coleta
-ticker := time.NewTicker(30 * time.Second)
-for range ticker.C {
-    snapshots, _ := session.CollectAllHPAs()
+fmt.Printf("Snapshots: %d\n", result.SnapshotsCount)
+fmt.Printf("Anomalies: %d\n", len(result.Anomalies))
 
-    for _, snap := range snapshots {
-        fmt.Printf("%s/%s: %d/%d replicas\n",
-            snap.Namespace,
-            snap.Name,
-            snap.CurrentReplicas,
-            snap.DesiredReplicas,
-        )
+// Continuous monitoring
+resultChan := make(chan *monitor.ScanResult, 10)
+
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+go collector.StartMonitoring(ctx, resultChan)
+
+for result := range resultChan {
+    fmt.Printf("[%s] Snapshots: %d, Anomalies: %d\n",
+        result.Timestamp.Format(time.RFC3339),
+        result.SnapshotsCount,
+        len(result.Anomalies),
+    )
+
+    for _, anomaly := range result.Anomalies {
+        fmt.Printf("  - %s: %s\n", anomaly.Type, anomaly.Message)
     }
 }
 ```
 
-## Fluxo de Operação
+## 🔄 Monitoring Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   MonitoringSession                          │
+│               Collector.StartMonitoring()                    │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │  K8sClient   │  │  K8sClient   │  │ PortForwardMgr  │   │
-│  │  (Cluster A) │  │  (Cluster B) │  │  Port: 55553    │   │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬────────┘   │
-│         │                  │                    │            │
-│         │                  │                    │            │
-│         ├─ List Namespaces ─────────────────────┤            │
-│         ├─ List HPAs       ─────────────────────┤            │
-│         ├─ Collect Snapshot ─────────────────────┤            │
-│         │                  │                    │            │
-│         │                  │          ┌─────────▼────────┐  │
-│         │                  │          │ kubectl port-fwd │  │
-│         │                  │          │ monitoring/svc   │  │
-│         │                  │          └──────────────────┘  │
-│         │                  │                    │            │
-│         │                  │          ┌─────────▼────────┐  │
-│         │                  │          │ Heartbeat Monitor│  │
-│         │                  │          │ (10s interval)   │  │
-│         │                  │          └──────────────────┘  │
-│         │                  │                    │            │
-└─────────┴──────────────────┴────────────────────┴───────────┘
-          │                  │                    │
-          ▼                  ▼                    ▼
-    HPASnapshot        HPASnapshot         Prometheus API
-                                          (via localhost:55553)
+│  Every 30s (configurable):                                  │
+│                                                              │
+│  1. List Namespaces (exclude system namespaces)            │
+│     ├─ kube-system, kube-public, etc skipped               │
+│     └─ Custom excludes from config                         │
+│                                                              │
+│  2. For each namespace:                                     │
+│     ├─ List HPAs via K8s API                               │
+│     │                                                        │
+│     └─ For each HPA:                                        │
+│        ├─ Collect HPA snapshot from K8s                    │
+│        │  ├─ HPA config (min/max replicas)                 │
+│        │  ├─ Current state (replicas, ready)               │
+│        │  └─ Deployment resources (CPU/Memory)             │
+│        │                                                     │
+│        ├─ Enrich with Prometheus (if available)            │
+│        │  ├─ CPU/Memory current usage                      │
+│        │  ├─ Historical data (5min)                        │
+│        │  └─ Extended metrics (errors, latency)            │
+│        │                                                     │
+│        └─ Add snapshot to TimeSeriesCache                  │
+│                                                              │
+│  3. Detect Anomalies                                        │
+│     ├─ Analyzer.Detect() uses cache                        │
+│     ├─ Checks 5 critical anomalies (Phase 1 MVP)          │
+│     └─ Returns detected anomalies                          │
+│                                                              │
+│  4. Send ScanResult to channel                             │
+│     ├─ Snapshots count                                     │
+│     ├─ Anomalies detected                                  │
+│     ├─ Errors encountered                                  │
+│     └─ Scan duration                                        │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Testes
+## 🧪 Testing
 
+### Unit Tests (short mode)
 ```bash
-# Rodar todos os testes
+go test ./internal/monitor/... -short -v
+```
+
+### Integration Tests (requires cluster)
+```bash
 go test ./internal/monitor/... -v
-
-# Testes curtos (sem timeout tests)
-go test ./internal/monitor/... -v -short
-
-# Coverage
-go test ./internal/monitor/... -cover
-
-# Benchmark
-go test ./internal/monitor/... -bench=.
 ```
 
-## Configuração de Port-Forward
+---
 
-No `configs/watchdog.yaml`:
-
-```yaml
-monitoring:
-  prometheus:
-    enabled: true
-    auto_discover: true
-    # Porta local para port-forward
-    local_port: 55553
-
-    # Heartbeat config
-    heartbeat_interval_seconds: 5
-    heartbeat_timeout_seconds: 30
-
-    # Cleanup de port-forwards inativos
-    inactive_cleanup_minutes: 5
-```
-
-## Troubleshooting
-
-### Port-forward não inicia
-
-```bash
-# Verifica se kubectl está disponível
-which kubectl
-
-# Testa conexão manual
-kubectl port-forward -n monitoring svc/prometheus-server 55553:9090
-
-# Verifica se porta 55553 está livre
-lsof -i :55553
-```
-
-### Port-forward órfão após crash
-
-O manager detecta automaticamente via heartbeat timeout (30s) e encerra.
-
-Se precisar limpar manualmente:
-
-```bash
-# Lista processos kubectl
-ps aux | grep "kubectl port-forward"
-
-# Mata processo específico
-kill <PID>
-```
-
-### Heartbeat timeout
-
-Se você vê warnings de heartbeat timeout, certifique-se que:
-
-1. O heartbeat loop está rodando
-2. Não há bloqueios na main thread
-3. O interval de heartbeat (5s) é menor que o timeout (30s)
-
-## Segurança
-
-**IMPORTANTE:**
-
-- Port-forwards são **locais** (localhost apenas)
-- Não expõem serviços para rede externa
-- Autenticação via kubeconfig (mesma do kubectl)
-- Apenas operações de **leitura** no cluster
-- Shutdown graceful garante cleanup completo
-
-## Performance
-
-**Benchmarks (Go 1.24, AMD64):**
-
-```
-BenchmarkHeartbeat-8           5000000    250 ns/op
-BenchmarkGetStatus-8           1000000   1500 ns/op
-BenchmarkCollectHPASnapshot-8   100000  15000 ns/op
-```
-
-**Recursos:**
-- Memória: ~5 MB por cluster conectado
-- CPU: <1% em idle, ~5% durante coleta
-- Network: Apenas API calls (não streaming)
-
-## Próximos Passos
-
-- [ ] Integração com Prometheus client
-- [ ] Métricas enriquecidas (CPU/Memory atual via Prometheus)
-- [ ] Auto-discovery de endpoints Prometheus/Alertmanager
-- [ ] Retry com exponential backoff
-- [ ] Circuit breaker para clusters não disponíveis
+**Status:** ✅ Phase 2 Complete
+**Next:** TUI implementation (Phase 3)

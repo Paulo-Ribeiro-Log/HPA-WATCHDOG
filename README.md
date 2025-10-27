@@ -2,9 +2,9 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Planning-yellow.svg)]()
+[![Status](https://img.shields.io/badge/Status-Development-green.svg)]()
 
-**HPA Watchdog** é um monitor autônomo para Horizontal Pod Autoscalers (HPAs) em clusters Kubernetes com interface TUI interativa.
+**HPA Watchdog** é um monitor autônomo para Horizontal Pod Autoscalers (HPAs) em clusters Kubernetes com interface TUI interativa rica e modo de stress test integrado.
 
 ## 🎯 Objetivo
 
@@ -13,13 +13,16 @@ Monitorar continuamente múltiplos clusters Kubernetes, detectando anomalias em 
 ## ✨ Features
 
 - 🔍 **Monitoramento Multi-Cluster**: Monitora múltiplos clusters simultaneamente
-- 📊 **Integração Prometheus**: Métricas ricas e análise temporal nativa
+- 📊 **Integração Prometheus**: Métricas ricas e análise temporal nativa com port-forward automático
 - 🚨 **Alertmanager Integration**: Dashboard centralizado de alertas existentes
-- 📈 **Análise Temporal**: Histórico de 5 minutos com detecção de tendências
-- 🎨 **TUI Interativa**: Interface rica com Bubble Tea + Lipgloss
-- 🔔 **Sistema de Alertas**: Detecção complementar de anomalias
-- ⚙️ **Configuração Dinâmica**: Ajuste de thresholds via interface
-- 🔄 **Auto-Discovery**: Descobre clusters, Prometheus e Alertmanager automaticamente
+- 📈 **Análise Temporal**: Gráficos de séries temporais com timezone GMT-3 (CPU, Memory, Réplicas)
+- 🎨 **TUI Interativa**: 7 views implementadas com Bubble Tea + Lipgloss + ntcharts
+- 🔔 **Sistema de Alertas**: Detecção de 10 tipos de anomalias (persistentes + mudanças súbitas)
+- 💾 **Persistência SQLite**: Auto-save/load com retenção de 24h e limpeza automática
+- 🧪 **Modo Stress Test**: Baseline capture, monitoramento em tempo real, relatório automático PASS/FAIL
+- 🔄 **Restart Automático**: Reinício inteligente de testes com Shift+R
+- 📊 **Scroll Inteligente**: Menu de HPAs com viewport e indicadores visuais
+- 📋 **Relatórios Detalhados**: Resumo executivo, métricas de pico PRE→PEAK→POST, recomendações
 
 ## 🏗️ Arquitetura
 
@@ -118,24 +121,44 @@ thresholds:
 
 ## 🎨 Interface TUI
 
-### Views Principais
+### Views Implementadas (7 views)
 
-1. **Dashboard**: Overview de todos os clusters com alertas recentes
-2. **Alerts**: Lista detalhada de alertas ativos (Alertmanager + Watchdog)
-3. **Clusters**: Breakdown por cluster e namespace
-4. **Config**: Modal interativo para ajustar thresholds
+1. **Setup**: Configuração inicial interativa (clusters, modo, duração, intervalo)
+2. **Dashboard**: Overview multi-cluster com top clusters, anomalias recentes
+3. **Alertas**: Lista detalhada com filtragem por severidade/cluster
+4. **Clusters**: Breakdown por cluster e namespace com métricas agregadas
+5. **Histórico**: Gráficos temporais de CPU/Memory/Réplicas (timezone GMT-3)
+6. **Stress Test**: Dashboard em tempo real com baseline e gráficos interativos
+7. **Relatório Final**: Resumo executivo PASS/FAIL com métricas PRE→PEAK→POST
 
 ### Controles
 
+#### Gerais
 | Tecla | Ação |
 |-------|------|
 | `Tab` | Alternar views |
-| `↑↓` | Navegar |
-| `Enter` | Ver detalhes |
+| `↑↓` ou `j k` | Navegar (scroll automático) |
+| `Enter` | Selecionar/Detalhar |
+| `H` / `Home` | Volta ao Dashboard |
+| `F5` / `R` | Refresh |
+| `Q` / `Ctrl+C` | Sair |
+
+#### Alertas
+| Tecla | Ação |
+|-------|------|
 | `A` | Acknowledge alerta |
+| `Shift+A` | Acknowledge todos |
 | `S` | Silenciar (Alertmanager) |
+| `C` | Limpar reconhecidos |
 | `E` | Enriquecer com contexto |
-| `Q` | Sair |
+
+#### Stress Test
+| Tecla | Ação |
+|-------|------|
+| `P` | Pausar/Retomar scan |
+| `Shift+R` | Reiniciar teste |
+| `E` | Exportar Markdown (TODO) |
+| `Shift+E` | Exportar PDF (TODO) |
 
 ## 📊 Métricas Monitoradas
 
@@ -162,12 +185,78 @@ thresholds:
 ### Alertmanager (Fonte Primária - 70%)
 Sincroniza e enriquece alertas existentes das regras Prometheus
 
-### Watchdog (Complementar - 30%)
-- Replica Oscillation (mudanças rápidas)
-- Scaling Stuck (HPA não consegue escalar)
-- Target Deviation (desvio do target)
-- Config Changes (mudanças em HPA/deployment)
-- Complex Correlations (múltiplos indicadores)
+### Watchdog Analyzer (Complementar - 30%)
+
+#### Fase 1: Anomalias de Estado Persistente
+1. **Oscilação**: >5 alterações de réplica em 5min
+2. **No Limite**: Réplicas = máx + CPU > alvo +20% por 2min
+3. **OOMKilled**: Pod finalizado por falta de memória
+4. **Pods Não Prontos**: Pods não prontos por 3min+
+5. **Alta Taxa de Erros**: >5% de erros 5xx por 2min
+
+#### Fase 2: Mudanças Súbitas (scan a scan)
+6. **Pico de CPU**: CPU aumentou >50% entre scans
+7. **Pico de Réplicas**: Réplicas aumentaram +3 entre scans
+8. **Pico de Erros**: Taxa de erros aumentou >5% entre scans
+9. **Pico de Latência**: Latência aumentou >100% entre scans
+10. **Queda de CPU**: CPU caiu >50% entre scans
+
+**Total**: 10 tipos de anomalia implementados e testados
+
+## 🧪 Modo Stress Test
+
+O HPA Watchdog inclui um modo especializado para testes de carga e validação de configurações de HPA.
+
+### Funcionalidades
+
+1. **Baseline Capture Automático**: Captura estado PRE (réplicas, CPU, memory) dos últimos 30min
+2. **Monitoramento em Tempo Real**: Dashboard interativo com gráficos de CPU/Memory
+3. **Comparação Automática**: Compara cada scan com baseline e detecta desvios
+4. **Término Automático**: Para automaticamente ao fim da duração configurada
+5. **Relatório Final**: Gerado e exibido automaticamente ao término
+
+### Relatório Final (ViewStressReport)
+
+Exibido automaticamente ao término do teste:
+
+- **Badge PASS/FAIL**: Verde (PASS) se <10% de HPAs com problemas críticos
+- **Barra de Saúde**: Visualização percentual de HPAs saudáveis
+- **Resumo Executivo**:
+  - Duração total, número de scans, HPAs monitorados
+  - Contagem de problemas (Critical/Warning/Info)
+- **Métricas de Pico**:
+  - **CPU Máximo**: valor, HPA, horário (GMT-3)
+  - **Memory Máximo**: valor, HPA, horário
+  - **Evolução de Réplicas**: `PRE → PEAK → POST` com % de aumento
+    - Exemplo: `100 réplicas → 150 réplicas → 120 réplicas (+50, +50%)`
+  - Taxa de Erro Máxima (se aplicável)
+  - Latência P95 Máxima (se aplicável)
+- **Problemas Detectados**:
+  - Top 5 Critical Issues
+  - Top 5 Warnings
+  - Para cada: tipo, HPA afetado, descrição
+- **Recomendações**:
+  - Priorizadas (URGENTE/ALTO/MÉDIO/BAIXO)
+  - Categorizadas (Scaling/Resources/Config/Code/Infra)
+  - Ação sugerida + rationale
+
+### Fluxo do Teste
+
+```
+1. Setup → Escolha modo "Stress Test"
+2. Baseline Capture → Coleta 30min de histórico
+3. Teste Inicia → Aplique carga externa
+4. Monitoramento → Dashboard em tempo real
+5. Término → Automático (duração) ou manual (Q)
+6. Relatório → Exibido automaticamente com resultado PASS/FAIL
+```
+
+### Controles Especiais
+
+- **P**: Pausar/Retomar scan durante teste
+- **Shift+R**: Reiniciar teste (limpa dados, recaptura baseline, mantém na view)
+- **E**: Exportar relatório em Markdown (TODO)
+- **Shift+E**: Exportar relatório em PDF (TODO)
 
 ## 🛠️ Development
 
@@ -255,24 +344,46 @@ Este projeto segue o princípio **Keep It Simple, Stupid**:
 
 ## 🗺️ Roadmap
 
-### Fase 1: MVP (Em Desenvolvimento)
+### Fase 1: Fundação ✅ (Concluída)
 - [x] Setup projeto
-- [ ] Core monitoring (K8s + Prometheus)
-- [ ] Alertmanager client
-- [ ] TUI básico
-- [ ] Config system
+- [x] Modelos de dados (HPASnapshot, TimeSeriesData, StressTestMetrics)
+- [x] Armazenamento em memória com estatísticas
+- [x] Detector de anomalias (10 tipos: Fase 1 + Fase 2)
+- [x] Testes unitários abrangentes
+- [x] Documentação completa
 
-### Fase 2: Features Avançadas
-- [ ] Silence management
-- [ ] Alert correlation
-- [ ] Enhanced UI com ASCII charts
-- [ ] SQLite persistence
+### Fase 2: Integração ✅ (Concluída)
+- [x] Integração cliente K8s
+- [x] Integração cliente Prometheus com port-forward automático
+- [x] Coletor unificado (K8s + Prometheus + Analyzer)
+- [x] Loop de monitoramento com canais
+- [x] Sistema de configuração YAML
+- [x] Persistência SQLite (auto-save/load/cleanup)
 
-### Fase 3: Production Ready
-- [ ] Systemd service
-- [ ] Docker image
-- [ ] Webhook notifications
-- [ ] Performance optimization
+### Fase 3: Interface do Usuário ✅ (Concluída)
+- [x] TUI completa com 7 views (Bubble Tea + Lipgloss)
+- [x] Dashboard multi-cluster
+- [x] View de alertas com filtragem
+- [x] View de histórico com gráficos temporais (GMT-3)
+- [x] **Modo Stress Test** com baseline e relatório automático
+- [x] Scroll inteligente em menus grandes
+- [x] Restart automático de testes
+
+### Fase 4: Recursos Avançados 🔄 (Em Progresso)
+- [x] Motor de correlação de alertas
+- [x] Detecção avançada de anomalias
+- [ ] Gestão de silêncios via TUI (Alertmanager)
+- [ ] Descoberta automática (clusters, Prometheus, Alertmanager)
+- [x] Persistência SQLite com retenção de 24h
+- [ ] Exportação de relatórios (Markdown/PDF)
+
+### Fase 5: Pronto para Produção 🔄 (Próxima)
+- [ ] Arquivo de serviço systemd
+- [ ] Imagem Docker oficial
+- [ ] Notificações via webhook (Slack, Discord, Teams)
+- [ ] Otimização de performance
+- [ ] Testes de integração end-to-end
+- [ ] Pipeline de CI/CD
 
 ## 📄 Licença
 
@@ -302,5 +413,4 @@ Contribuições são bem-vindas! Por favor:
 
 ---
 
-**Status**: 🟡 Em desenvolvimento ativo
-# HPA-WATCHDOG
+**Status**: 🟢 Em desenvolvimento ativo - Fase 3 concluída (TUI + Stress Test)

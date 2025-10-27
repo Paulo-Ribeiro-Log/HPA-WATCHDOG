@@ -176,7 +176,7 @@ func (k *K8sClient) CollectHPASnapshot(ctx context.Context, hpa *autoscalingv2.H
 	}
 
 	// Tenta obter resources do deployment/target
-	if hpa.Spec.ScaleTargetRef.Kind == "Deployment" {
+	if k.Clientset != nil && hpa.Spec.ScaleTargetRef.Kind == "Deployment" {
 		deployment, err := k.GetDeployment(ctx, hpa.Namespace, hpa.Spec.ScaleTargetRef.Name)
 		if err != nil {
 			log.Warn().
